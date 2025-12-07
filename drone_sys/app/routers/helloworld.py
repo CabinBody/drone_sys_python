@@ -12,4 +12,4 @@ async def hello_world():
     """
     一个最简单的测试接口。
     """
-    return {"message": "Hello, World!"}
+    return {"message": "Hello, World!hhaha"}

@@ -3,33 +3,48 @@ set -e
 
 ##################### 配置 #####################
 
-# 项目根目录
 PROJECT_DIR="/opt/drone_sys_python"
-
-# 上传后的压缩包名称（和 upload.sh 保持一致）
 TAR_NAME="drone_sys_python.tar.gz"
-
-# 虚拟环境目录
 VENV_DIR="$PROJECT_DIR/venv"
-
-# 日志 & PID 文件
 LOG_DIR="$PROJECT_DIR/logs"
-PID_FILE="$PROJECT_DIR/uvicorn.pid"
 
-# Python 版本（你说服务器用 3.12）
 PYTHON_BIN="python3.12"
-
-# Uvicorn 配置
 APP_MODULE="drone_sys.app.main:app"
-HOST="127.0.0.1"   # 只在本机监听，给 Nginx 反向代理用
-PORT=8001          # 内部端口，Nginx 转发 /droneFusion 到这里
+HOST="127.0.0.1"
+PORT=8001
 
-##################### 解压 #####################
+##################### 准备 #####################
 
-echo "📦 解压到 $PROJECT_DIR"
+echo "📦 工作目录：$PROJECT_DIR"
+mkdir -p "$LOG_DIR"
 cd "$PROJECT_DIR"
 
-echo "🧹 清理旧代码（保留 deploy.sh / $TAR_NAME / venv）"
+##################### 杀掉旧进程（不再依赖 PID 文件） #####################
+
+echo "🔍 查找旧的 uvicorn 进程..."
+OLD_PIDS=$(ps aux | grep "uvicorn $APP_MODULE" | grep -v grep | awk '{print $2}')
+
+if [ -n "$OLD_PIDS" ]; then
+  echo "🛑 发现旧进程：$OLD_PIDS"
+  echo "🛑 正常 kill..."
+  kill $OLD_PIDS || true
+  sleep 1
+
+  # 再查一次，有残留就直接 kill -9
+  REMAIN_PIDS=$(ps aux | grep "uvicorn $APP_MODULE" | grep -v grep | awk '{print $2}')
+  if [ -n "$REMAIN_PIDS" ]; then
+    echo "⚠️ 发现残留进程（强制 kill -9）：$REMAIN_PIDS"
+    kill -9 $REMAIN_PIDS || true
+  fi
+else
+  echo "ℹ️ 未发现旧的 uvicorn 进程"
+fi
+
+echo "👌 uvicorn 已全部停止"
+
+##################### 部署新代码 #####################
+
+echo "🧹 清理旧代码（保留 deploy.sh / venv / tar 包）"
 find "$PROJECT_DIR" -mindepth 1 -maxdepth 1 \
   ! -name "deploy.sh" \
   ! -name "$TAR_NAME" \
@@ -39,47 +54,27 @@ find "$PROJECT_DIR" -mindepth 1 -maxdepth 1 \
 echo "📦 解压新代码：$TAR_NAME"
 tar -xzf "$TAR_NAME"
 
-##################### Python 3.12 环境 #####################
+##################### 虚拟环境 #####################
 
-mkdir -p "$LOG_DIR"
-
-if ! command -v "$PYTHON_BIN" &> /dev/null; then
-  echo "❌ 未找到 $PYTHON_BIN，请先在服务器安装（例如：apt install python3.12 python3.12-venv）"
-  exit 1
-fi
-
-# 创建或复用 venv
 if [ ! -d "$VENV_DIR" ]; then
-  echo "🐍 使用 $PYTHON_BIN 创建虚拟环境：$VENV_DIR"
+  echo "🐍 创建虚拟环境：$VENV_DIR"
   "$PYTHON_BIN" -m venv "$VENV_DIR"
 fi
 
-echo "👉 激活虚拟环境：$VENV_DIR"
-# shellcheck disable=SC1090
+echo "👉 激活虚拟环境"
 source "$VENV_DIR/bin/activate"
 
 echo "⬆️ 升级 pip"
 pip install --upgrade pip
 
 if [ -f "$PROJECT_DIR/requirements.txt" ]; then
-  echo "📦 安装依赖：requirements.txt"
+  echo "📦 安装依赖"
   pip install -r "$PROJECT_DIR/requirements.txt" --no-cache-dir
 else
-  echo "⚠️ 未找到 requirements.txt，跳过依赖安装"
+  echo "⚠️ 未找到 requirements.txt（可能是空项目）"
 fi
 
-##################### 停掉旧进程 #####################
-
-if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-  OLD_PID=$(cat "$PID_FILE")
-  echo "🛑 停止旧的 uvicorn：PID=$OLD_PID"
-  kill "$OLD_PID" || true
-  rm -f "$PID_FILE"
-else
-  echo "ℹ️ 无旧 uvicorn 进程"
-fi
-
-##################### 启动服务 #####################
+##################### 启动新的 uvicorn #####################
 
 echo "🚀 启动 uvicorn：$APP_MODULE ($HOST:$PORT)"
 nohup uvicorn "$APP_MODULE" \
@@ -88,9 +83,7 @@ nohup uvicorn "$APP_MODULE" \
   >> "$LOG_DIR/server.log" 2>&1 &
 
 NEW_PID=$!
-echo "$NEW_PID" > "$PID_FILE"
-
-echo "🎉 部署成功，服务已启动：PID=$NEW_PID"
+echo "🎉 新进程! PID：$NEW_PID"
 echo "📜 日志文件：$LOG_DIR/server.log"
-echo "📘 内部访问: http://$HOST:$PORT/hello/world"
-echo "🌐 Nginx 映射后访问: http://81.70.81.41:8080/droneFusion/hello/world"
+echo "📘 内部调试:  http://$HOST:$PORT/hello/world"
+echo "🌐 外网访问:  http://cabinbody.cn/drone-fusion/hello/world"
