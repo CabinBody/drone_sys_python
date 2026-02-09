@@ -4,13 +4,13 @@ from mpl_toolkits.mplot3d import Axes3D
 import os
 
 # ====== 配置 ======
-BATCH_DIR = "./dataset/scenario_multi_source_5000x120/batch01"
-uav_id = "UAV10"
+BATCH_DIR = "./dataset/scenario_multi_source_2000x120/batch01"
+uav_id = "UAV00010"
 
 # ====== 读取数据 ======
 def load_source(name):
     df = pd.read_csv(os.path.join(BATCH_DIR, f"{name}.csv"))
-    return df[df["id"] == uav_id]
+    return df[df["uav_id"] == uav_id]
 
 truth = load_source("truth")
 gps   = load_source("gps")
