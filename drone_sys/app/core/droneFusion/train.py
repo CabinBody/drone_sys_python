@@ -9,6 +9,7 @@ from dataset import (
     DATA_ROOT,
     WINDOW_SIZE,
     STRIDE,
+    sparse_collate_fn,
 )
 from model import GraphFusionModel, NODE_FEAT_DIM
 
@@ -44,13 +45,20 @@ def train_one_epoch(model, loader, optimizer, device):
     total_samples = 0
 
     for batch in loader:
-        x, y, m = batch   # x: [B, T, 3, F], y: [B, T, 3], m: [B, T, 3]
-        x = x.to(device)
-        y = y.to(device)
-        m = m.to(device)
+        node_feat = batch["node_feat"].to(device)
+        node_t = batch["node_t"].to(device)
+        node_m = batch["node_m"].to(device)
+        node_mask = batch["node_mask"].to(device)
+        y = batch["y"].to(device)
 
         optimizer.zero_grad()
-        pred = model(x, m)       # [B, T, 3] (归一化空间)
+        pred = model(
+            node_feat=node_feat,
+            node_t=node_t,
+            node_m=node_m,
+            node_mask=node_mask,
+            window_size=y.shape[1],
+        )
         loss = loss_fn(pred, y)  # MSE
 
         loss.backward()
@@ -58,7 +66,7 @@ def train_one_epoch(model, loader, optimizer, device):
             torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)
         optimizer.step()
 
-        bs = x.size(0)
+        bs = node_feat.size(0)
         total_loss += loss.item() * bs
         total_samples += bs
 
@@ -83,6 +91,7 @@ def main():
         shuffle=True,
         num_workers=0,   # Windows 建议先用 0，避免多进程问题
         drop_last=False,
+        collate_fn=sparse_collate_fn,
     )
 
     # 2) 构建模型
@@ -94,6 +103,8 @@ def main():
         dim_ff=DIM_FF,
         dropout=DROPOUT,
         window_size=WINDOW_SIZE,
+        num_modalities=4,
+        knn_k=8,
     ).to(DEVICE)
 
     optimizer = torch.optim.AdamW(
@@ -126,6 +137,8 @@ def main():
                 "dim_ff": DIM_FF,
                 "dropout": DROPOUT,
                 "window_size": WINDOW_SIZE,
+                "num_modalities": 4,
+                "knn_k": 8,
             },
         },
         MODEL_PATH,

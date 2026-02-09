@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 import bluesky as bs
-from bluesky import stack
+import bluesky.stack as stack
 
 # ---------------------------------------------------------------
 # 1️⃣ 全局配置
@@ -70,6 +70,30 @@ DROPOUT = dict(
 
 CONF_MIN = 0.05
 
+# ---------------------------------------------------------------
+# 模态组合采样（用于训练可变模态）
+# 每个元素: (("gps","radar"), weight)
+# 会在每个 (timestamp, id) 上采样并决定哪些模态保留
+# ---------------------------------------------------------------
+MODALITY_KEYS = ("gps", "radar", "fiveg", "tdoa")
+MODALITY_COMBO_WEIGHTS = [
+    (("radar", "fiveg", "tdoa"), 0.18),
+    (("gps", "radar", "fiveg", "tdoa"), 0.18),
+    (("gps", "radar", "fiveg"), 0.10),
+    (("gps", "radar", "tdoa"), 0.09),
+    (("gps", "fiveg", "tdoa"), 0.09),
+    (("radar", "fiveg"), 0.08),
+    (("radar", "tdoa"), 0.07),
+    (("fiveg", "tdoa"), 0.07),
+    (("gps", "radar"), 0.04),
+    (("gps", "fiveg"), 0.03),
+    (("gps", "tdoa"), 0.03),
+    (("radar",), 0.01),
+    (("fiveg",), 0.01),
+    (("tdoa",), 0.01),
+    (("gps",), 0.01),
+]
+
 base_lat, base_lon = 45.0, 5.0
 
 # 传感器位置
@@ -101,6 +125,57 @@ def apply_dropout(df, name):
     if p <= 0:
         return df
     return df[np.random.rand(len(df)) > p].reset_index(drop=True)
+
+
+def build_combo_assignments(index_df):
+    """
+    为每个 (timestamp, id) 分配一个模态组合，返回列:
+    timestamp, id, use_gps, use_radar, use_fiveg, use_tdoa
+    """
+    uniq = index_df[["timestamp", "id"]].drop_duplicates().reset_index(drop=True)
+    n = len(uniq)
+    if n == 0:
+        for k in MODALITY_KEYS:
+            uniq[f"use_{k}"] = np.array([], dtype=np.int8)
+        return uniq
+
+    combos = [c for c, _ in MODALITY_COMBO_WEIGHTS]
+    weights = np.array([w for _, w in MODALITY_COMBO_WEIGHTS], dtype=np.float64)
+    weights = weights / weights.sum()
+
+    # 按权重分桶，尽量保证所有组合在一个大 batch 中都出现
+    raw_counts = weights * n
+    counts = np.floor(raw_counts).astype(int)
+    remain = int(n - counts.sum())
+    if remain > 0:
+        order = np.argsort(raw_counts - counts)[::-1]
+        for i in range(remain):
+            counts[order[i % len(order)]] += 1
+
+    idx = []
+    for ci, c in enumerate(counts):
+        if c > 0:
+            idx.extend([ci] * c)
+    idx = np.array(idx, dtype=np.int32)
+    np.random.shuffle(idx)
+
+    assigned = [combos[i] for i in idx]
+    for k in MODALITY_KEYS:
+        uniq[f"use_{k}"] = np.array([1 if k in c else 0 for c in assigned], dtype=np.int8)
+    return uniq
+
+
+def apply_combo_mask(df_mod, combo_df, modality_key):
+    """
+    根据组合分配保留或剔除观测。
+    """
+    flag = f"use_{modality_key}"
+    if len(df_mod) == 0:
+        return df_mod
+    merged = df_mod.merge(combo_df[["timestamp", "id", flag]], on=["timestamp", "id"], how="left")
+    merged[flag] = merged[flag].fillna(0).astype(np.int8)
+    merged = merged[merged[flag] == 1].copy()
+    return merged.drop(columns=[flag]).reset_index(drop=True)
 
 
 # ⭐ 直接使用 BlueSky 内部速度，不再差分计算
@@ -341,6 +416,7 @@ for b in range(total_batches):
 
     path = os.path.join(OUTPUT_ROOT, f"batch{b+1:02d}")
     os.makedirs(path, exist_ok=True)
+    combo_assign = build_combo_assignments(bt)
 
     # ⭐ 为每个模态加噪声（位置 + 速度）
     for key, fname in [
@@ -364,6 +440,7 @@ for b in range(total_batches):
 
         df = compute_conf_by_error(df, bt, key)
         df = apply_dropout(df, key)
+        df = apply_combo_mask(df, combo_assign, key)
 
         df.to_csv(os.path.join(path, fname), index=False)
 

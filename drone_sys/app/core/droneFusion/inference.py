@@ -1,11 +1,11 @@
 import os
-import torch
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+import torch
 
-from dataset import MultiSourceGraphDataset, NODE_FEAT_DIM, WINDOW_SIZE
-from dataset import latlon_to_enu, to_enu_single_point, enu_to_llh
+from dataset import MODALITIES, MODALITY_TO_ID, NODE_FEAT_DIM, enu_to_llh, latlon_to_enu
 from model import GraphFusionModel
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -13,12 +13,13 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 # ===========================================================
 # CONFIG
 # ===========================================================
-DATA_ROOT  = r"D:\MyCode\drone-fusion\datasetBuilder\dataset\scenario_multi_source_test"
-BATCH_DIR  = os.path.join(DATA_ROOT, "batch01")
+DATA_ROOT = r"D:\MyCode\drone-fusion\datasetBuilder\dataset\scenario_multi_source_test"
+BATCH_DIR = os.path.join(DATA_ROOT, "batch01")
 MODEL_PATH = "graph_fusion_model.pt"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 UID = 2
 
+WINDOW_SIZE = 20
 STRIDE = 5
 
 
@@ -26,136 +27,142 @@ STRIDE = 5
 # ERROR
 # ===========================================================
 def calc_err(pred, gt):
+    if len(pred) == 0:
+        return {"RMSE": np.nan, "MAE": np.nan, "MAX": np.nan}
     diff = pred - gt
     dist = np.linalg.norm(diff, axis=1)
     return {
         "RMSE": float(np.sqrt(np.mean(dist ** 2))),
-        "MAE":  float(np.mean(np.abs(dist))),
-        "MAX":  float(np.max(dist)),
+        "MAE": float(np.mean(np.abs(dist))),
+        "MAX": float(np.max(dist)),
     }
 
 
-# ===========================================================
-# OAA 融合
-# ===========================================================
-def merge_windows(preds, T_total, window=20, stride=5):
-    fusion = np.zeros((T_total, 3), dtype=np.float32)
-    count  = np.zeros(T_total, dtype=np.float32)
+def merge_windows(preds, starts, t_total, window=20):
+    fusion = np.zeros((t_total, 3), dtype=np.float32)
+    count = np.zeros(t_total, dtype=np.float32)
 
-    idx = 0
-    for p in preds:
-        for i in range(window):
-            t = idx + i
-            if t < T_total:
-                fusion[t] += p[i]
-                count[t]  += 1
-        idx += stride
+    for p, s in zip(preds, starts):
+        valid = min(window, t_total - s)
+        fusion[s : s + valid] += p[:valid]
+        count[s : s + valid] += 1
 
-    return fusion / (count[:,None] + 1e-6)
+    return fusion / (count[:, None] + 1e-6)
 
 
-# ===========================================================
-# 完全使用 dataset._align_mod 构造滑动窗口输入
-# ===========================================================
-def build_inputs_from_dataset(batch_dir, uav):
-    ds = MultiSourceGraphDataset(DATA_ROOT)
-
-    truth = pd.read_csv(os.path.join(batch_dir, "truth.csv"))
-    radar = pd.read_csv(os.path.join(batch_dir, "radar.csv"))
-    fiveg = pd.read_csv(os.path.join(batch_dir, "5g_a.csv"))
-    tdoa  = pd.read_csv(os.path.join(batch_dir, "tdoa.csv"))
-
-    truth = truth[truth["id"] == uav].sort_values("timestamp")
-
-    # ENU 基准点
-    lat0, lon0, alt0 = truth.iloc[0][["lat", "lon", "alt"]]
-
-    # truth ENU（全序列）
-    e_gt, n_gt, u_gt = latlon_to_enu(
-        truth["lat"].values, truth["lon"].values, truth["alt"].values,
-        lat0, lon0, alt0
+def modality_series_enu(df_truth_u, df_mod_u, lat0, lon0, alt0):
+    merged = df_truth_u[["timestamp", "lat", "lon", "alt"]].merge(
+        df_mod_u[["timestamp", "lat", "lon", "alt"]],
+        on="timestamp",
+        how="inner",
+        suffixes=("_t", "_m"),
     )
-    truth_full_enu = np.stack([e_gt, n_gt, u_gt], axis=-1)
+    if len(merged) == 0:
+        return np.zeros((0, 3), dtype=np.float32), np.zeros((0, 3), dtype=np.float32)
 
-    # --- dataset 的对齐方法 ---
-    align = ds._align_mod
-    radar_m = align(truth, radar, uav, lat0, lon0, alt0)
-    fiveg_m = align(truth, fiveg, uav, lat0, lon0, alt0)
-    tdoa_m  = align(truth, tdoa,  uav, lat0, lon0, alt0)
-
-    # 保存模态经纬度（用于绘图）
-    radar_lat = truth["lat"].values
-    radar_lon = truth["lon"].values
-    fiveg_lat = truth["lat"].values
-    fiveg_lon = truth["lon"].values
-    tdoa_lat  = truth["lat"].values
-    tdoa_lon  = truth["lon"].values
-
-    # ------------------- 滑动窗口构造 -------------------
-    X_list, M_list = [], []
-    T_total = len(truth)
-
-    vx = truth["vx"].values
-    vy = truth["vy"].values
-    vz = truth["vz"].values
-    spd = truth["speed"].values
-
-    for s in range(0, T_total - WINDOW_SIZE + 1, STRIDE):
-        X = np.zeros((WINDOW_SIZE, 3, NODE_FEAT_DIM), dtype=np.float32)
-        M = np.zeros((WINDOW_SIZE, 3), dtype=np.float32)
-        t_norm = np.linspace(0, 1, WINDOW_SIZE)
-
-        mods = [radar_m, fiveg_m, tdoa_m]
-        for mi, m in enumerate(mods):
-            X[:, mi, 0:3] = np.stack([
-                m["east"][s:s+WINDOW_SIZE],
-                m["north"][s:s+WINDOW_SIZE],
-                m["up"][s:s+WINDOW_SIZE],
-            ], axis=-1)
-
-            X[:, mi, 3] = vx[s:s+WINDOW_SIZE]
-            X[:, mi, 4] = vy[s:s+WINDOW_SIZE]
-            X[:, mi, 5] = vz[s:s+WINDOW_SIZE]
-            X[:, mi, 6] = spd[s:s+WINDOW_SIZE]
-
-            X[:, mi, 7] = m["conf"][s:s+WINDOW_SIZE]
-            X[:, mi, 8] = t_norm
-
-            if mi == 0: X[:, mi, 9] = 1
-            if mi == 1: X[:, mi,10] = 1
-            if mi == 2: X[:, mi,11] = 1
-
-            M[:, mi] = m["mask"][s:s+WINDOW_SIZE]
-
-        X_list.append(X)
-        M_list.append(M)
-
-    return (
-        np.array(X_list),
-        np.array(M_list),
-        truth_full_enu,
-        radar_m,
-        fiveg_m,
-        tdoa_m,
-        (lat0, lon0, alt0)
+    e_t, n_t, u_t = latlon_to_enu(
+        merged["lat_t"].values, merged["lon_t"].values, merged["alt_t"].values, lat0, lon0, alt0
     )
+    e_m, n_m, u_m = latlon_to_enu(
+        merged["lat_m"].values, merged["lon_m"].values, merged["alt_m"].values, lat0, lon0, alt0
+    )
+    gt = np.stack([e_t, n_t, u_t], axis=1).astype(np.float32)
+    obs = np.stack([e_m, n_m, u_m], axis=1).astype(np.float32)
+    return gt, obs
 
 
-# ===========================================================
-# MAIN
-# ===========================================================
+def build_sparse_windows(df_truth_u, mod_frames, lat0, lon0, alt0, window_size, stride):
+    ts_all = df_truth_u["timestamp"].values.astype(np.int64)
+    vx_all = df_truth_u["vx"].values.astype(np.float32)
+    vy_all = df_truth_u["vy"].values.astype(np.float32)
+    vz_all = df_truth_u["vz"].values.astype(np.float32)
+    spd_all = df_truth_u["speed"].values.astype(np.float32)
+
+    mod_maps = {}
+    for m in MODALITIES:
+        df_m = mod_frames[m]
+        df_m = df_m[df_m["id"] == df_truth_u.iloc[0]["id"]]
+        mod_maps[m] = {
+            int(r.timestamp): r
+            for r in df_m[["timestamp", "lat", "lon", "alt", "source_conf"]].itertuples(index=False)
+        }
+
+    windows = []
+    starts = []
+    t_total = len(df_truth_u)
+    for s in range(0, t_total - window_size + 1, stride):
+        ts_win = ts_all[s : s + window_size]
+        vx = vx_all[s : s + window_size]
+        vy = vy_all[s : s + window_size]
+        vz = vz_all[s : s + window_size]
+        spd = spd_all[s : s + window_size]
+
+        feats = []
+        t_ids = []
+        m_ids = []
+
+        denom = max(window_size - 1, 1)
+        for ti in range(window_size):
+            ts = int(ts_win[ti])
+            for m in MODALITIES:
+                row = mod_maps[m].get(ts)
+                if row is None:
+                    continue
+
+                east, north, up = latlon_to_enu(row.lat, row.lon, row.alt, lat0, lon0, alt0)
+                feat = np.zeros((NODE_FEAT_DIM,), dtype=np.float32)
+                feat[0:3] = np.array([east, north, up], dtype=np.float32)
+                feat[3] = vx[ti]
+                feat[4] = vy[ti]
+                feat[5] = vz[ti]
+                feat[6] = spd[ti]
+                feat[7] = float(row.source_conf)
+                feat[8] = float(ti / denom)
+                feat[9 + MODALITY_TO_ID[m]] = 1.0
+
+                feats.append(feat)
+                t_ids.append(ti)
+                m_ids.append(MODALITY_TO_ID[m])
+
+        if len(feats) == 0:
+            continue
+
+        windows.append(
+            {
+                "node_feat": np.stack(feats).astype(np.float32),
+                "node_t": np.array(t_ids, dtype=np.int64),
+                "node_m": np.array(m_ids, dtype=np.int64),
+            }
+        )
+        starts.append(s)
+
+    return windows, starts
+
+
 def main():
     truth = pd.read_csv(os.path.join(BATCH_DIR, "truth.csv"))
     uav = truth["id"].unique()[UID]
-    print("🛸 UAV:", uav)
+    print("UAV:", uav)
 
-    # --- 构造输入 ---
-    (X_win, M_win, truth_full_enu,
-     radar_m, fiveg_m, tdoa_m, origin) = build_inputs_from_dataset(BATCH_DIR, uav)
+    df_t = truth[truth["id"] == uav].sort_values("timestamp").reset_index(drop=True)
+    lat0, lon0, alt0 = df_t.iloc[0][["lat", "lon", "alt"]]
 
-    # --- 加载模型 ---
+    e_gt, n_gt, u_gt = latlon_to_enu(df_t["lat"].values, df_t["lon"].values, df_t["alt"].values, lat0, lon0, alt0)
+    truth_full_enu = np.stack([e_gt, n_gt, u_gt], axis=-1).astype(np.float32)
+
+    mod_frames = {
+        "gps": pd.read_csv(os.path.join(BATCH_DIR, "gps.csv")),
+        "radar": pd.read_csv(os.path.join(BATCH_DIR, "radar.csv")),
+        "5g_a": pd.read_csv(os.path.join(BATCH_DIR, "5g_a.csv")),
+        "tdoa": pd.read_csv(os.path.join(BATCH_DIR, "tdoa.csv")),
+    }
+
+    windows, starts = build_sparse_windows(df_t, mod_frames, lat0, lon0, alt0, WINDOW_SIZE, STRIDE)
+    if len(windows) == 0:
+        raise RuntimeError("No valid sparse windows for inference")
+
     ckpt = torch.load(MODEL_PATH, map_location=DEVICE)
-    cfg  = ckpt["config"]
+    cfg = ckpt["config"]
 
     model = GraphFusionModel(
         in_dim=cfg["in_dim"],
@@ -164,76 +171,63 @@ def main():
         num_layers=cfg["num_layers"],
         dim_ff=cfg["dim_ff"],
         dropout=cfg["dropout"],
-        window_size=cfg["window_size"]
+        window_size=cfg["window_size"],
+        num_modalities=cfg.get("num_modalities", 4),
+        knn_k=cfg.get("knn_k", 8),
     ).to(DEVICE)
     model.load_state_dict(ckpt["model_state_dict"])
+    model.eval()
 
     x_mean = ckpt["x_mean"].to(DEVICE)
-    x_std  = ckpt["x_std"].to(DEVICE)
+    x_std = ckpt["x_std"].to(DEVICE)
     y_mean = ckpt["y_mean"].to(DEVICE)
-    y_std  = ckpt["y_std"].to(DEVICE)
+    y_std = ckpt["y_std"].to(DEVICE)
 
-    # --- 推理 ---
     preds = []
-    for X, M in zip(X_win, M_win):
-        X = torch.tensor(X).unsqueeze(0).to(DEVICE)
-        M = torch.tensor(M).unsqueeze(0).to(DEVICE)
+    for w in windows:
+        node_feat = torch.tensor(w["node_feat"], dtype=torch.float32, device=DEVICE)
+        node_t = torch.tensor(w["node_t"], dtype=torch.long, device=DEVICE)
+        node_m = torch.tensor(w["node_m"], dtype=torch.long, device=DEVICE)
 
-        X_norm = (X - x_mean.reshape(1,1,1,-1)) / x_std.reshape(1,1,1,-1)
+        node_feat = (node_feat - x_mean.reshape(1, -1)) / x_std.reshape(1, -1)
+
         with torch.no_grad():
-            pred_norm = model(X_norm, M)
-            pred = pred_norm * y_std + y_mean
-            preds.append(pred.squeeze(0).cpu().numpy())
+            pred_norm = model(
+                node_feat=node_feat.unsqueeze(0),
+                node_t=node_t.unsqueeze(0),
+                node_m=node_m.unsqueeze(0),
+                node_mask=torch.ones((1, node_feat.shape[0]), dtype=torch.float32, device=DEVICE),
+                window_size=WINDOW_SIZE,
+            )[0]
+        pred = pred_norm * y_std + y_mean
+        preds.append(pred.cpu().numpy())
 
-    preds = np.array(preds)   # [num_windows,20,3]
+    fusion_enu = merge_windows(np.array(preds), starts, t_total=len(truth_full_enu), window=WINDOW_SIZE)
 
-    # --- OAA 融合 ---
-    fusion_enu = merge_windows(preds, T_total=len(truth_full_enu))
-
-    # --- 误差 ---
     fusion_err = calc_err(fusion_enu, truth_full_enu)
-    radar_err  = calc_err(np.stack([radar_m["east"], radar_m["north"], radar_m["up"]],axis=1), truth_full_enu)
-    fiveg_err  = calc_err(np.stack([fiveg_m["east"], fiveg_m["north"], fiveg_m["up"]],axis=1), truth_full_enu)
-    tdoa_err   = calc_err(np.stack([tdoa_m["east"],  tdoa_m["north"],  tdoa_m["up"]], axis=1), truth_full_enu)
+    print("\nFusion Error:", fusion_err)
 
-    print("\n📊 Fusion Error:", fusion_err)
-    print("Radar :", radar_err)
-    print("5G-A  :", fiveg_err)
-    print("TDOA  :", tdoa_err)
+    for m in MODALITIES:
+        gt_m, obs_m = modality_series_enu(df_t, mod_frames[m][mod_frames[m]["id"] == uav], lat0, lon0, alt0)
+        print(f"{m} Error:", calc_err(obs_m, gt_m))
 
-    # --- ENU → 经纬度 ---
-    lat0, lon0, alt0 = origin
-    pred_lat, pred_lon, _ = enu_to_llh(
-        fusion_enu[:,0], fusion_enu[:,1], fusion_enu[:,2], lat0, lon0, alt0
-    )
-    truth_lat = truth[truth["id"]==uav].sort_values("timestamp")["lat"].values
-    truth_lon = truth[truth["id"]==uav].sort_values("timestamp")["lon"].values
+    pred_lat, pred_lon, _ = enu_to_llh(fusion_enu[:, 0], fusion_enu[:, 1], fusion_enu[:, 2], lat0, lon0, alt0)
+    truth_lat = df_t["lat"].values
+    truth_lon = df_t["lon"].values
 
-    # --- 绘图 ---
-    plt.figure(figsize=(10,8))
-
-    # Truth
+    plt.figure(figsize=(10, 8))
     plt.scatter(truth_lon, truth_lat, s=15, c="black", label="Truth")
-
-    # Fusion
     plt.scatter(pred_lon, pred_lat, s=15, c="red", label="Fusion")
 
-    # Radar
-    radar_lat_plot = truth_lat   # 原始经纬度等于 truth 对齐后的纬度
-    radar_lon_plot = truth_lon
-    plt.scatter(radar_lon_plot, radar_lat_plot, s=8, c="blue", label="Radar", alpha=0.5)
+    colors = {"gps": "orange", "radar": "blue", "5g_a": "green", "tdoa": "purple"}
+    for m in MODALITIES:
+        d = mod_frames[m]
+        d = d[d["id"] == uav]
+        if len(d) == 0:
+            continue
+        plt.scatter(d["lon"].values, d["lat"].values, s=8, c=colors[m], label=m, alpha=0.35)
 
-    # 5G-A
-    fiveg_lat_plot = truth_lat
-    fiveg_lon_plot = truth_lon
-    plt.scatter(fiveg_lon_plot, fiveg_lat_plot, s=8, c="green", label="5G-A", alpha=0.5)
-
-    # TDOA
-    tdoa_lat_plot = truth_lat
-    tdoa_lon_plot = truth_lon
-    plt.scatter(tdoa_lon_plot, tdoa_lat_plot, s=8, c="purple", label="TDOA", alpha=0.5)
-
-    plt.title("Truth / Fusion / Radar / 5G-A / TDOA (Dot Plot)")
+    plt.title("Truth / Fusion / Modalities")
     plt.xlabel("Longitude")
     plt.ylabel("Latitude")
     plt.grid(True, alpha=0.3)

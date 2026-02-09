@@ -1,35 +1,164 @@
-# evaluate.py
 import os
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
-import matplotlib.pyplot as plt
 
-from dataset import MultiSourceGraphDataset, latlon_to_enu
-from model import GraphFusionModel, NODE_FEAT_DIM
+from dataset import MODALITIES, MODALITY_TO_ID, NODE_FEAT_DIM, latlon_to_enu
+from model import GraphFusionModel
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 # ==============================================================
-# ⚙ CONFIG
+# CONFIG
 # ==============================================================
 DATA_ROOT = r"D:\MyCode\drone-fusion\datasetBuilder\dataset\scenario_multi_source_test"
 MODEL_PATH = "graph_fusion_model.pt"
 WINDOW_SIZE = 20
+STRIDE = 5
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 OUTPUT_DIR = "./eval_results"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 SAVE_FIG = True
+MAX_UAVS = 20
 
 
 # ==============================================================
-# 加载模型 + norm
+# 基础函数
+# ==============================================================
+def calc_err(pred, gt):
+    if len(pred) == 0:
+        return None
+    diff = pred - gt
+    dist = np.linalg.norm(diff, axis=1)
+    return dict(
+        RMSE=float(np.sqrt(np.mean(dist ** 2))),
+        MAE=float(np.mean(dist)),
+        MAX=float(np.max(dist)),
+    )
+
+
+def calc_z_err(pred_z, gt_z):
+    if len(pred_z) == 0:
+        return None
+    diff = np.abs(pred_z - gt_z)
+    return dict(
+        RMSE=float(np.sqrt(np.mean(diff ** 2))),
+        MAE=float(np.mean(diff)),
+        MAX=float(np.max(diff)),
+    )
+
+
+def merge_windows(preds, starts, t_total, window=20):
+    fusion = np.zeros((t_total, 3), dtype=np.float32)
+    count = np.zeros(t_total, dtype=np.float32)
+
+    for p, s in zip(preds, starts):
+        valid = min(window, t_total - s)
+        fusion[s : s + valid] += p[:valid]
+        count[s : s + valid] += 1
+
+    return fusion / (count[:, None] + 1e-6)
+
+
+def build_sparse_windows(df_truth_u, mod_frames, lat0, lon0, alt0, window_size, stride):
+    ts_all = df_truth_u["timestamp"].values.astype(np.int64)
+    vx_all = df_truth_u["vx"].values.astype(np.float32)
+    vy_all = df_truth_u["vy"].values.astype(np.float32)
+    vz_all = df_truth_u["vz"].values.astype(np.float32)
+    spd_all = df_truth_u["speed"].values.astype(np.float32)
+
+    mod_maps = {}
+    uav = df_truth_u.iloc[0]["id"]
+    for m in MODALITIES:
+        df_m = mod_frames[m]
+        df_m = df_m[df_m["id"] == uav]
+        mod_maps[m] = {
+            int(r.timestamp): r
+            for r in df_m[["timestamp", "lat", "lon", "alt", "source_conf"]].itertuples(index=False)
+        }
+
+    windows = []
+    starts = []
+    t_total = len(df_truth_u)
+    for s in range(0, t_total - window_size + 1, stride):
+        ts_win = ts_all[s : s + window_size]
+        vx = vx_all[s : s + window_size]
+        vy = vy_all[s : s + window_size]
+        vz = vz_all[s : s + window_size]
+        spd = spd_all[s : s + window_size]
+
+        feats = []
+        t_ids = []
+        m_ids = []
+        denom = max(window_size - 1, 1)
+
+        for ti in range(window_size):
+            ts = int(ts_win[ti])
+            for m in MODALITIES:
+                row = mod_maps[m].get(ts)
+                if row is None:
+                    continue
+
+                east, north, up = latlon_to_enu(row.lat, row.lon, row.alt, lat0, lon0, alt0)
+                feat = np.zeros((NODE_FEAT_DIM,), dtype=np.float32)
+                feat[0:3] = np.array([east, north, up], dtype=np.float32)
+                feat[3] = vx[ti]
+                feat[4] = vy[ti]
+                feat[5] = vz[ti]
+                feat[6] = spd[ti]
+                feat[7] = float(row.source_conf)
+                feat[8] = float(ti / denom)
+                feat[9 + MODALITY_TO_ID[m]] = 1.0
+
+                feats.append(feat)
+                t_ids.append(ti)
+                m_ids.append(MODALITY_TO_ID[m])
+
+        if len(feats) == 0:
+            continue
+
+        windows.append(
+            {
+                "node_feat": np.stack(feats).astype(np.float32),
+                "node_t": np.array(t_ids, dtype=np.int64),
+                "node_m": np.array(m_ids, dtype=np.int64),
+            }
+        )
+        starts.append(s)
+
+    return windows, starts
+
+
+def modality_metrics(df_truth_u, df_mod_u, lat0, lon0, alt0):
+    merged = df_truth_u[["timestamp", "lat", "lon", "alt"]].merge(
+        df_mod_u[["timestamp", "lat", "lon", "alt"]],
+        on="timestamp",
+        how="inner",
+        suffixes=("_t", "_m"),
+    )
+    if len(merged) < 5:
+        return None
+
+    e_gt, n_gt, u_gt = latlon_to_enu(
+        merged["lat_t"].values, merged["lon_t"].values, merged["alt_t"].values, lat0, lon0, alt0
+    )
+    e_m, n_m, u_m = latlon_to_enu(
+        merged["lat_m"].values, merged["lon_m"].values, merged["alt_m"].values, lat0, lon0, alt0
+    )
+    gt = np.stack([e_gt, n_gt, u_gt], axis=1)
+    obs = np.stack([e_m, n_m, u_m], axis=1)
+    return calc_err(obs, gt)
+
+
+# ==============================================================
+# 模型
 # ==============================================================
 def load_model():
     ckpt = torch.load(MODEL_PATH, map_location="cpu")
-
     cfg = ckpt["config"]
 
     model = GraphFusionModel(
@@ -40,6 +169,8 @@ def load_model():
         dim_ff=cfg["dim_ff"],
         dropout=cfg["dropout"],
         window_size=cfg["window_size"],
+        num_modalities=cfg.get("num_modalities", 4),
+        knn_k=cfg.get("knn_k", 8),
     ).to(DEVICE)
 
     model.load_state_dict(ckpt["model_state_dict"])
@@ -55,159 +186,20 @@ def load_model():
 
 
 # ==============================================================
-# → 误差函数
+# 可视化
 # ==============================================================
-def calc_err(pred, gt):
-    diff = pred - gt
-    dist = np.linalg.norm(diff, axis=1)
-    return dict(
-        RMSE=float(np.sqrt(np.mean(dist ** 2))),
-        MAE=float(np.mean(dist)),
-        MAX=float(np.max(dist)),
-    )
-
-
-def calc_z_err(pred_z, gt_z):
-    diff = np.abs(pred_z - gt_z)
-    return dict(
-        RMSE=float(np.sqrt(np.mean(diff ** 2))),
-        MAE=float(np.mean(diff)),
-        MAX=float(np.max(diff)),
-    )
-
-
-# ==============================================================
-# 单模态误差：Radar / 5G-A / TDOA
-# ==============================================================
-def modality_metrics(df_truth, df_mod, uav, lat0, lon0, alt0):
-    df_t = df_truth[df_truth["id"] == uav].sort_values("timestamp")
-    df_m = df_mod[df_mod["id"] == uav]
-
-    merged = df_t.merge(df_m, on="timestamp", suffixes=("", "_m"), how="inner")
-    if len(merged) < 5:
-        return None
-
-    # truth ENU
-    e_gt, n_gt, u_gt = latlon_to_enu(
-        merged["lat"], merged["lon"], merged["alt"], lat0, lon0, alt0
-    )
-    # modality ENU
-    e_m, n_m, u_m = latlon_to_enu(
-        merged["lat_m"], merged["lon_m"], merged["alt_m"], lat0, lon0, alt0
-    )
-
-    return calc_err(np.stack([e_m, n_m, u_m], 1), np.stack([e_gt, n_gt, u_gt], 1))
-
-
-# ==============================================================
-# Evaluate 1 UAV
-# ==============================================================
-def evaluate_uav(model, batch_dir, uav, x_mean, x_std, y_mean, y_std):
-
-    truth = pd.read_csv(os.path.join(batch_dir, "truth.csv"))
-    radar = pd.read_csv(os.path.join(batch_dir, "radar.csv"))
-    fiveg = pd.read_csv(os.path.join(batch_dir, "5g_a.csv"))
-    tdoa  = pd.read_csv(os.path.join(batch_dir, "tdoa.csv"))
-
-    df_t = truth[truth["id"] == uav].sort_values("timestamp")
-    if len(df_t) < WINDOW_SIZE:
-        return None
-
-    # ENU 基准点
-    lat0, lon0, alt0 = df_t.iloc[0][["lat", "lon", "alt"]]
-
-    # truth ENU
-    e_gt, n_gt, u_gt = latlon_to_enu(df_t["lat"], df_t["lon"], df_t["alt"], lat0, lon0, alt0)
-    GT = np.stack([e_gt, n_gt, u_gt], axis=1)
-
-    # 单模态误差
-    radar_err = modality_metrics(truth, radar, uav, lat0, lon0, alt0)
-    fiveg_err = modality_metrics(truth, fiveg, uav, lat0, lon0, alt0)
-    tdoa_err  = modality_metrics(truth, tdoa,  uav, lat0, lon0, alt0)
-
-    # 使用 dataset 的对齐方法
-    tmp_dataset = MultiSourceGraphDataset(DATA_ROOT)
-    align = tmp_dataset._align_mod
-
-    radar_m = align(df_t, radar, uav, lat0, lon0, alt0)
-    fiveg_m = align(df_t, fiveg, uav, lat0, lon0, alt0)
-    tdoa_m  = align(df_t, tdoa,  uav, lat0, lon0, alt0)
-
-    # 构造模型输入
-    T = len(df_t)
-    T_use = min(T, WINDOW_SIZE)
-    X = np.zeros((1, T_use, 3, NODE_FEAT_DIM), dtype=np.float32)
-    M = np.zeros((1, T_use, 3), dtype=np.float32)
-    t_norm = np.linspace(0, 1, T_use)
-
-    mods = [radar_m, fiveg_m, tdoa_m]
-    for mi, m in enumerate(mods):
-        X[0, :, mi, 0] = m["east"][:T_use]
-        X[0, :, mi, 1] = m["north"][:T_use]
-        X[0, :, mi, 2] = m["up"][:T_use]
-        X[0, :, mi, 7] = m["conf"][:T_use]
-        X[0, :, mi, 8] = t_norm
-
-        X[0, :, mi, 3] = df_t["vx"].values[:T_use]
-        X[0, :, mi, 4] = df_t["vy"].values[:T_use]
-        X[0, :, mi, 5] = df_t["vz"].values[:T_use]
-        X[0, :, mi, 6] = df_t["speed"].values[:T_use]
-
-        # one-hot
-        if mi == 0: X[0, :, mi, 9] = 1
-        if mi == 1: X[0, :, mi, 10] = 1
-        if mi == 2: X[0, :, mi, 11] = 1
-
-        M[0, :, mi] = m["mask"][:T_use]
-
-    # ⇒ 标准化
-    X_std = (X - x_mean.cpu().numpy()) / x_std.cpu().numpy()
-    X_t = torch.tensor(X_std, dtype=torch.float32).to(DEVICE)
-    M_t = torch.tensor(M, dtype=torch.float32).to(DEVICE)
-
-    # ⇒ 推理
-    with torch.no_grad():
-        pred_norm = model(X_t, M_t).detach().cpu().numpy()[0]
-    pred = pred_norm * y_std.cpu().numpy() + y_mean.cpu().numpy()
-
-    GT_use = GT[:T_use]
-    pred_use = pred[:T_use]
-
-    # Fusion 误差
-    fusion_err_xy = calc_err(pred_use[:, :2], GT_use[:, :2])  # 平面误差
-    z_err = calc_z_err(pred_use[:, 2], GT_use[:, 2])          # 高度误差
-
-    # 2D 图
-    fig = plt.figure(figsize=(6, 5))
-    plt.plot(GT_use[:, 0], GT_use[:, 1], 'k-', label='Truth')
-    plt.plot(pred_use[:, 0], pred_use[:, 1], 'r--', label='Fusion')
-    plt.xlabel("East (m)")
-    plt.ylabel("North (m)")
-    plt.title(f"{uav} - {os.path.basename(batch_dir)}")
-    plt.legend()
-
-    if SAVE_FIG:
-        sp = os.path.join(OUTPUT_DIR, f"{os.path.basename(batch_dir)}_{uav}_2d.png")
-        plt.savefig(sp)
-    plt.close()
-
-    return fusion_err_xy, z_err, radar_err, fiveg_err, tdoa_err
-
-
-# ==============================================================
-# *** 增加误差对比柱状图 ***
-# ==============================================================
-def plot_modality_bar(uav, fusion, radar, fiveg, tdoa):
-    labels = ["Fusion", "Radar", "5G-A", "TDOA"]
+def plot_modality_bar(uav, fusion, mod_errs):
+    labels = ["Fusion", "GPS", "Radar", "5G-A", "TDOA"]
     values = [
-        fusion["RMSE"],
-        radar["RMSE"] if radar else np.nan,
-        fiveg["RMSE"] if fiveg else np.nan,
-        tdoa["RMSE"] if tdoa else np.nan,
+        fusion["RMSE"] if fusion else np.nan,
+        mod_errs.get("gps", {}).get("RMSE", np.nan) if mod_errs.get("gps") else np.nan,
+        mod_errs.get("radar", {}).get("RMSE", np.nan) if mod_errs.get("radar") else np.nan,
+        mod_errs.get("5g_a", {}).get("RMSE", np.nan) if mod_errs.get("5g_a") else np.nan,
+        mod_errs.get("tdoa", {}).get("RMSE", np.nan) if mod_errs.get("tdoa") else np.nan,
     ]
 
-    plt.figure(figsize=(7,5))
-    plt.bar(labels, values, color=["red", "blue", "green", "purple"])
+    plt.figure(figsize=(7, 5))
+    plt.bar(labels, values, color=["red", "orange", "blue", "green", "purple"])
     plt.ylabel("RMSE (m)")
     plt.title(f"RMSE Comparison - {uav}")
     sp = os.path.join(OUTPUT_DIR, f"{uav}_modality_compare.png")
@@ -215,39 +207,87 @@ def plot_modality_bar(uav, fusion, radar, fiveg, tdoa):
     plt.close()
 
 
-def plot_height_bar(uav, z_fusion, z_radar, z_5g, z_tdoa):
-    labels = ["Fusion", "Radar", "5G-A", "TDOA"]
-    values = [
-        z_fusion["RMSE"],
-        z_radar["RMSE"] if z_radar else np.nan,
-        z_5g["RMSE"] if z_5g else np.nan,
-        z_tdoa["RMSE"] if z_tdoa else np.nan,
-    ]
-    plt.figure(figsize=(7,5))
-    plt.bar(labels, values, color=["red", "blue", "green", "purple"])
+def plot_height_bar(uav, z_fusion):
+    labels = ["Fusion"]
+    values = [z_fusion["RMSE"] if z_fusion else np.nan]
+    plt.figure(figsize=(6, 4))
+    plt.bar(labels, values, color=["red"])
     plt.ylabel("Z-RMSE (m)")
-    plt.title(f"Height Error Comparison - {uav}")
+    plt.title(f"Height Error - {uav}")
     sp = os.path.join(OUTPUT_DIR, f"{uav}_height_compare.png")
     plt.savefig(sp)
     plt.close()
 
 
-def plot_height_error_curve(uav, pred_z, gt_z):
-    """
-    画高度误差的逐时间步折线图
-    """
-    err = np.abs(pred_z - gt_z)  # [T_use]
+# ==============================================================
+# Evaluate 1 UAV
+# ==============================================================
+def evaluate_uav(model, batch_dir, uav, x_mean, x_std, y_mean, y_std):
+    truth = pd.read_csv(os.path.join(batch_dir, "truth.csv"))
+    mod_frames = {
+        "gps": pd.read_csv(os.path.join(batch_dir, "gps.csv")),
+        "radar": pd.read_csv(os.path.join(batch_dir, "radar.csv")),
+        "5g_a": pd.read_csv(os.path.join(batch_dir, "5g_a.csv")),
+        "tdoa": pd.read_csv(os.path.join(batch_dir, "tdoa.csv")),
+    }
 
-    plt.figure(figsize=(7, 5))
-    plt.plot(err, color="red", linewidth=2)
-    plt.xlabel("Time Step")
-    plt.ylabel("Height Error |pred_z - gt_z| (m)")
-    plt.title(f"Fusion Z-Error Curve - {uav}")
-    plt.grid(True)
+    df_t = truth[truth["id"] == uav].sort_values("timestamp").reset_index(drop=True)
+    if len(df_t) < WINDOW_SIZE:
+        return None
 
-    save_path = os.path.join(OUTPUT_DIR, f"{uav}_fusion_z_error_curve.png")
-    plt.savefig(save_path)
-    plt.close()
+    lat0, lon0, alt0 = df_t.iloc[0][["lat", "lon", "alt"]]
+    e_gt, n_gt, u_gt = latlon_to_enu(df_t["lat"].values, df_t["lon"].values, df_t["alt"].values, lat0, lon0, alt0)
+    gt = np.stack([e_gt, n_gt, u_gt], axis=1)
+
+    mod_errs = {}
+    for m in MODALITIES:
+        df_m_u = mod_frames[m][mod_frames[m]["id"] == uav]
+        mod_errs[m] = modality_metrics(df_t, df_m_u, lat0, lon0, alt0)
+
+    windows, starts = build_sparse_windows(df_t, mod_frames, lat0, lon0, alt0, WINDOW_SIZE, STRIDE)
+    if len(windows) == 0:
+        return None
+
+    preds = []
+    for w in windows:
+        node_feat = torch.tensor(w["node_feat"], dtype=torch.float32, device=DEVICE)
+        node_t = torch.tensor(w["node_t"], dtype=torch.long, device=DEVICE)
+        node_m = torch.tensor(w["node_m"], dtype=torch.long, device=DEVICE)
+
+        node_feat = (node_feat - x_mean.reshape(1, -1)) / x_std.reshape(1, -1)
+
+        with torch.no_grad():
+            pred_norm = model(
+                node_feat=node_feat.unsqueeze(0),
+                node_t=node_t.unsqueeze(0),
+                node_m=node_m.unsqueeze(0),
+                node_mask=torch.ones((1, node_feat.shape[0]), dtype=torch.float32, device=DEVICE),
+                window_size=WINDOW_SIZE,
+            )[0]
+
+        pred = pred_norm * y_std + y_mean
+        preds.append(pred.cpu().numpy())
+
+    fusion_enu = merge_windows(np.array(preds), starts, t_total=len(gt), window=WINDOW_SIZE)
+
+    fusion_err_xyz = calc_err(fusion_enu, gt)
+    fusion_err_xy = calc_err(fusion_enu[:, :2], gt[:, :2])
+    z_err = calc_z_err(fusion_enu[:, 2], gt[:, 2])
+
+    if SAVE_FIG:
+        plt.figure(figsize=(6, 5))
+        plt.plot(gt[:, 0], gt[:, 1], "k-", label="Truth")
+        plt.plot(fusion_enu[:, 0], fusion_enu[:, 1], "r--", label="Fusion")
+        plt.xlabel("East (m)")
+        plt.ylabel("North (m)")
+        plt.title(f"{uav} - {os.path.basename(batch_dir)}")
+        plt.legend()
+        sp = os.path.join(OUTPUT_DIR, f"{os.path.basename(batch_dir)}_{uav}_2d.png")
+        plt.savefig(sp)
+        plt.close()
+
+    return fusion_err_xyz, fusion_err_xy, z_err, mod_errs
+
 
 # ==============================================================
 # MAIN
@@ -262,52 +302,65 @@ def main():
 
     for batch in sorted(os.listdir(DATA_ROOT)):
         batch_dir = os.path.join(DATA_ROOT, batch)
-        if not os.path.isdir(batch_dir): continue
+        if not os.path.isdir(batch_dir):
+            continue
 
         truth = pd.read_csv(os.path.join(batch_dir, "truth.csv"))
 
         for uav in truth["id"].unique():
-            if cnt >= 20: break
+            if cnt >= MAX_UAVS:
+                break
 
             out = evaluate_uav(model, batch_dir, uav, x_mean, x_std, y_mean, y_std)
             if out is None:
                 continue
 
-            (fusion_err, z_err,
-             radar_err, fiveg_err, tdoa_err) = out
+            fusion_xyz, fusion_xy, z_err, mod_errs = out
+            print(f"[✓] {batch} - {uav}: Fusion RMSE = {fusion_xyz['RMSE']:.3f} m")
 
-            print(f"[✓] {batch} - {uav}: Fusion RMSE = {fusion_err['RMSE']:.3f} m")
+            plot_modality_bar(uav, fusion_xyz, mod_errs)
+            plot_height_bar(uav, z_err)
 
-            # 保存可视化：模态对比柱状图 + 高度误差图
-            plot_modality_bar(uav, fusion_err, radar_err, fiveg_err, tdoa_err)
-            plot_height_bar(uav, z_err, radar_err, fiveg_err, tdoa_err)
-
-            # 结果写入 CSV
-            results.append([
-                uav, batch,
-                fusion_err["RMSE"], fusion_err["MAE"], fusion_err["MAX"],
-                z_err["RMSE"], z_err["MAE"], z_err["MAX"],
-                radar_err["RMSE"] if radar_err else None,
-                fiveg_err["RMSE"] if fiveg_err else None,
-                tdoa_err["RMSE"] if tdoa_err else None,
-            ])
-
+            results.append(
+                [
+                    uav,
+                    batch,
+                    fusion_xyz["RMSE"],
+                    fusion_xyz["MAE"],
+                    fusion_xyz["MAX"],
+                    fusion_xy["RMSE"] if fusion_xy else None,
+                    z_err["RMSE"] if z_err else None,
+                    mod_errs["gps"]["RMSE"] if mod_errs.get("gps") else None,
+                    mod_errs["radar"]["RMSE"] if mod_errs.get("radar") else None,
+                    mod_errs["5g_a"]["RMSE"] if mod_errs.get("5g_a") else None,
+                    mod_errs["tdoa"]["RMSE"] if mod_errs.get("tdoa") else None,
+                ]
+            )
             cnt += 1
-        if cnt >= 20:
+
+        if cnt >= MAX_UAVS:
             break
 
-    df = pd.DataFrame(results, columns=[
-        "uav","batch",
-        "fusion_rmse","fusion_mae","fusion_max",
-        "z_rmse","z_mae","z_max",
-        "radar_rmse","fiveg_rmse","tdoa_rmse"
-    ])
+    df = pd.DataFrame(
+        results,
+        columns=[
+            "uav",
+            "batch",
+            "fusion_rmse_3d",
+            "fusion_mae_3d",
+            "fusion_max_3d",
+            "fusion_rmse_xy",
+            "fusion_rmse_z",
+            "gps_rmse",
+            "radar_rmse",
+            "fiveg_rmse",
+            "tdoa_rmse",
+        ],
+    )
     df.to_csv(os.path.join(OUTPUT_DIR, "fusion_eval.csv"), index=False)
 
-    print("\n[✔ 完成] 前10个 UAV 评估完成！")
+    print("\n[完成] 评估结束")
     print(df.head())
-
-
 
 
 if __name__ == "__main__":
