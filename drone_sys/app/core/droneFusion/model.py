@@ -5,8 +5,10 @@ import torch.nn as nn
 import torch.nn.functional as Fnn
 
 # 与 dataset.py 保持一致
-NODE_FEAT_DIM = 13
-N_MODALITIES = 4
+NODE_FEAT_DIM = 19
+N_MODALITIES = 5
+IDX_CONF = 7
+IDX_POS_VALID = 9
 
 
 class GraphTransformerLayer(nn.Module):
@@ -118,9 +120,9 @@ class GraphFusionModel(nn.Module):
 
         self.node_encoder = nn.Linear(in_dim, d_model)
 
-        # edge_feat = [dist, dt, same_mod, same_time, dconf]
+        # edge_feat = [dist, dt, same_mod, same_time, dconf, pair_pos_valid]
         self.edge_mlp = nn.Sequential(
-            nn.Linear(5, d_model),
+            nn.Linear(6, d_model),
             nn.ReLU(),
             nn.Linear(d_model, num_heads),
         )
@@ -176,7 +178,8 @@ class GraphFusionModel(nn.Module):
         m_clamped = node_m.clamp(min=0)
 
         pos = node_feat[..., 0:3]
-        conf = node_feat[..., 7:8]
+        conf = node_feat[..., IDX_CONF : IDX_CONF + 1]
+        pos_valid = node_feat[..., IDX_POS_VALID : IDX_POS_VALID + 1]
 
         t_i = t_clamped[:, :, None]
         t_j = t_clamped[:, None, :]
@@ -190,12 +193,16 @@ class GraphFusionModel(nn.Module):
         pi = pos[:, :, None, :]
         pj = pos[:, None, :, :]
         dist = torch.norm(pi - pj, dim=-1)
+        pv_i = pos_valid[:, :, None, :]
+        pv_j = pos_valid[:, None, :, :]
+        pair_pos_valid = (pv_i > 0.5) & (pv_j > 0.5)
+        dist = torch.where(pair_pos_valid.squeeze(-1), dist, torch.full_like(dist, 50.0))
 
         ci = conf[:, :, None, :]
         cj = conf[:, None, :, :]
         dconf = (ci - cj).abs().squeeze(-1)
 
-        edge_feat = torch.stack([dist, dt, same_mod, same_time, dconf], dim=-1)
+        edge_feat = torch.stack([dist, dt, same_mod, same_time, dconf, pair_pos_valid.squeeze(-1).float()], dim=-1)
 
         # padding 边置零，避免无效特征影响 edge_mlp
         valid_pair = (node_mask[:, :, None] > 0) & (node_mask[:, None, :] > 0)

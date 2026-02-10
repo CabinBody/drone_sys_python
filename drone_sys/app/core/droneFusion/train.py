@@ -1,50 +1,94 @@
-# train.py
 import os
+import glob
+from dataclasses import asdict, dataclass, field
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from dataset import (
-    MultiSourceGraphDataset,
     DATA_ROOT,
-    WINDOW_SIZE,
-    STRIDE,
+    MODALITIES,
+    MultiSourceGraphDataset,
     sparse_collate_fn,
 )
-from model import GraphFusionModel, NODE_FEAT_DIM
+from model import GraphFusionModel
 
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"  # 避免 OpenMP 冲突
-
-# ==============================
-# ⚙ 可配置参数
-# ==============================
-DATA_DIR      = DATA_ROOT
-BATCH_SIZE    = 64
-EPOCHS        = 40
-LEARNING_RATE = 5e-4
-WEIGHT_DECAY  = 1e-4
-GRAD_CLIP     = 1.0
-
-D_MODEL       = 128
-NUM_HEADS     = 4
-NUM_LAYERS    = 3
-DIM_FF        = 256
-DROPOUT       = 0.15
-
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
-MODEL_PATH = "graph_fusion_model.pt"
-NORM_PATH  = "graph_fusion_norm.pth"   # 可选：单独保存归一化参数（这里直接用 dataset 里的）
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 
-def train_one_epoch(model, loader, optimizer, device):
+@dataclass
+class DataConfig:
+    data_dir: str = DATA_ROOT
+    window_size: int = 20
+    stride: int = 8
+    truth_dt_s: float = 1.0
+    align_tolerance_s: float = 0.55
+    modalities: list = field(default_factory=lambda: list(MODALITIES))
+    norm_stats_path: str = "graph_norm_stats_processed_sparse_enu.pth"
+    rebuild_norm_stats: bool = False
+    max_batches: int = 0  # 0 means no limit
+    batch_prefix: str = "batch"
+    dataset_verbose: bool = True
+    dataset_log_every_uav: int = 20
+    dataset_build_workers: int = 15
+    dataset_build_use_multiprocessing: bool = True
+    dataset_use_sample_cache: bool = True
+    dataset_rebuild_sample_cache: bool = False
+    dataset_sample_cache_dir: str = ".cache/graph_samples"
+
+
+@dataclass
+class ModelConfig:
+    d_model: int = 128
+    num_heads: int = 4
+    num_layers: int = 3
+    dim_ff: int = 256
+    dropout: float = 0.15
+    knn_k: int = 6
+
+
+@dataclass
+class TrainConfig:
+    batch_size: int = 8
+    epochs: int = 15
+    lr: float = 3e-4
+    weight_decay: float = 5e-5
+    grad_clip: float = 1.0
+    num_workers: int = 2
+    loader_persistent_workers: bool = True
+    loader_prefetch_factor: int = 2
+    loader_multiprocessing_context: str = "spawn"
+    pin_memory: bool = True
+    log_every_step: bool = True
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    model_path: str = "graph_fusion_model_processed.pt"
+
+
+DATA_CFG = DataConfig()
+MODEL_CFG = ModelConfig()
+TRAIN_CFG = TrainConfig()
+
+
+def train_one_epoch(
+    model,
+    loader,
+    optimizer,
+    device,
+    epoch,
+    epochs,
+    log_every_step=True,
+    grad_clip=1.0,
+    phase_tag=""
+):
     model.train()
     loss_fn = nn.MSELoss()
 
     total_loss = 0.0
     total_samples = 0
+    num_steps = len(loader)
 
-    for batch in loader:
+    for step, batch in enumerate(loader, start=1):
         node_feat = batch["node_feat"].to(device)
         node_t = batch["node_t"].to(device)
         node_m = batch["node_m"].to(device)
@@ -59,91 +103,171 @@ def train_one_epoch(model, loader, optimizer, device):
             node_mask=node_mask,
             window_size=y.shape[1],
         )
-        loss = loss_fn(pred, y)  # MSE
-
+        loss = loss_fn(pred, y)
         loss.backward()
-        if GRAD_CLIP is not None and GRAD_CLIP > 0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)
+
+        if grad_clip is not None and grad_clip > 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
         optimizer.step()
 
         bs = node_feat.size(0)
-        total_loss += loss.item() * bs
+        total_loss += float(loss.item()) * bs
         total_samples += bs
+        avg_loss = total_loss / max(total_samples, 1)
 
-    avg_loss = total_loss / max(total_samples, 1)
-    return avg_loss
+        if log_every_step:
+            print(
+                f"[Epoch {epoch:02d}/{epochs:02d}] "
+                f"{phase_tag} "
+                f"Step {step:04d}/{num_steps:04d} | "
+                f"loss={loss.item():.6f} | avg={avg_loss:.6f}"
+            )
+
+    return total_loss / max(total_samples, 1)
+
+
+def list_data_units(data_dir: str, batch_prefix: str, max_batches: int):
+    batch_dirs = sorted(glob.glob(os.path.join(data_dir, f"{batch_prefix}*")))
+    if len(batch_dirs) == 0:
+        return [data_dir]
+    if max_batches is not None and max_batches > 0:
+        return batch_dirs[:max_batches]
+    return batch_dirs
+
+
+def build_loader_for_unit(unit_dir: str, cfg: DataConfig, train_cfg: TrainConfig, rebuild_norm_stats: bool):
+    dataset = MultiSourceGraphDataset(
+        data_root=unit_dir,
+        window_size=cfg.window_size,
+        stride=cfg.stride,
+        modalities=cfg.modalities,
+        truth_dt_s=cfg.truth_dt_s,
+        align_tolerance_s=cfg.align_tolerance_s,
+        norm_stats_path=cfg.norm_stats_path,
+        rebuild_norm_stats=rebuild_norm_stats,
+        max_batches=None,
+        verbose=cfg.dataset_verbose,
+        log_every_uav=cfg.dataset_log_every_uav,
+        build_workers=cfg.dataset_build_workers,
+        build_use_multiprocessing=cfg.dataset_build_use_multiprocessing,
+        use_sample_cache=cfg.dataset_use_sample_cache,
+        rebuild_sample_cache=cfg.dataset_rebuild_sample_cache,
+        sample_cache_dir=cfg.dataset_sample_cache_dir,
+    )
+    loader_kwargs = dict(
+        dataset=dataset,
+        batch_size=train_cfg.batch_size,
+        shuffle=True,
+        num_workers=train_cfg.num_workers,
+        drop_last=False,
+        pin_memory=bool(train_cfg.pin_memory and str(train_cfg.device).startswith("cuda")),
+        collate_fn=sparse_collate_fn,
+    )
+    if train_cfg.num_workers > 0:
+        loader_kwargs["persistent_workers"] = bool(train_cfg.loader_persistent_workers)
+        loader_kwargs["prefetch_factor"] = int(train_cfg.loader_prefetch_factor)
+        if train_cfg.loader_multiprocessing_context:
+            loader_kwargs["multiprocessing_context"] = train_cfg.loader_multiprocessing_context
+    loader = DataLoader(**loader_kwargs)
+    return dataset, loader
 
 
 def main():
-    print(f"[Config] DATA_DIR={DATA_DIR}")
-    print(f"[Config] DEVICE={DEVICE}")
+    print("[Config] data:", asdict(DATA_CFG))
+    print("[Config] model:", asdict(MODEL_CFG))
+    print("[Config] train:", asdict(TRAIN_CFG))
 
-    # 1) 构建 Dataset & DataLoader
-    dataset = MultiSourceGraphDataset(
-        data_root=DATA_DIR,
-        window_size=WINDOW_SIZE,
-        stride=STRIDE,
+    units = list_data_units(
+        data_dir=DATA_CFG.data_dir,
+        batch_prefix=DATA_CFG.batch_prefix,
+        max_batches=DATA_CFG.max_batches,
+    )
+    print(f"[Data] training units: {len(units)}")
+
+    # Build first unit to initialize model input dim + norm stats
+    first_rebuild = DATA_CFG.rebuild_norm_stats
+    first_ds, first_loader = build_loader_for_unit(
+        unit_dir=units[0],
+        cfg=DATA_CFG,
+        train_cfg=TRAIN_CFG,
+        rebuild_norm_stats=first_rebuild,
     )
 
-    loader = DataLoader(
-        dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=True,
-        num_workers=0,   # Windows 建议先用 0，避免多进程问题
-        drop_last=False,
-        collate_fn=sparse_collate_fn,
-    )
-
-    # 2) 构建模型
     model = GraphFusionModel(
-        in_dim=NODE_FEAT_DIM,
-        d_model=D_MODEL,
-        num_heads=NUM_HEADS,
-        num_layers=NUM_LAYERS,
-        dim_ff=DIM_FF,
-        dropout=DROPOUT,
-        window_size=WINDOW_SIZE,
-        num_modalities=4,
-        knn_k=8,
-    ).to(DEVICE)
+        in_dim=first_ds.node_feat_dim,
+        d_model=MODEL_CFG.d_model,
+        num_heads=MODEL_CFG.num_heads,
+        num_layers=MODEL_CFG.num_layers,
+        dim_ff=MODEL_CFG.dim_ff,
+        dropout=MODEL_CFG.dropout,
+        window_size=DATA_CFG.window_size,
+        num_modalities=len(DATA_CFG.modalities),
+        knn_k=MODEL_CFG.knn_k,
+    ).to(TRAIN_CFG.device)
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
-        lr=LEARNING_RATE,
-        weight_decay=WEIGHT_DECAY,
+        lr=TRAIN_CFG.lr,
+        weight_decay=TRAIN_CFG.weight_decay,
     )
 
     print(model)
-    print(f"[Train] Start training for {EPOCHS} epochs.")
+    print(f"[Train] start: epochs={TRAIN_CFG.epochs}, units/epoch={len(units)}")
 
-    # 3) 训练循环
-    for epoch in range(1, EPOCHS + 1):
-        avg_loss = train_one_epoch(model, loader, optimizer, DEVICE)
-        print(f"Epoch {epoch:02d}/{EPOCHS:02d}  |  loss = {avg_loss:.6f}")
+    for epoch in range(1, TRAIN_CFG.epochs + 1):
+        unit_losses = []
+        for ui, unit_dir in enumerate(units, start=1):
+            rebuild = False
+            print(f"[Load] Epoch {epoch:02d} unit {ui:03d}/{len(units):03d}: {unit_dir}")
+            if epoch == 1 and ui == 1:
+                ds, loader = first_ds, first_loader
+                print("[Load] reuse warmup loader for first unit")
+            else:
+                ds, loader = build_loader_for_unit(
+                    unit_dir=unit_dir,
+                    cfg=DATA_CFG,
+                    train_cfg=TRAIN_CFG,
+                    rebuild_norm_stats=rebuild,
+                )
+            if len(ds) == 0:
+                print(f"[WARN] empty dataset in {unit_dir}, skip")
+                continue
+            unit_loss = train_one_epoch(
+                model=model,
+                loader=loader,
+                optimizer=optimizer,
+                device=TRAIN_CFG.device,
+                epoch=epoch,
+                epochs=TRAIN_CFG.epochs,
+                log_every_step=TRAIN_CFG.log_every_step,
+                grad_clip=TRAIN_CFG.grad_clip,
+                phase_tag=f"[unit {ui:03d}/{len(units):03d}]",
+            )
+            unit_losses.append(unit_loss)
+            print(f"[Unit] Epoch {epoch:02d} unit {ui:03d} done | avg_loss={unit_loss:.6f}")
 
-    # 4) 保存模型 + 归一化参数
+        epoch_loss = float(sum(unit_losses) / max(len(unit_losses), 1))
+        print(f"[Epoch {epoch:02d}] done | avg_loss={epoch_loss:.6f}")
+
     torch.save(
         {
             "model_state_dict": model.state_dict(),
-            "x_mean": dataset.x_mean,
-            "x_std": dataset.x_std,
-            "y_mean": dataset.y_mean,
-            "y_std": dataset.y_std,
+            "x_mean": first_ds.x_mean,
+            "x_std": first_ds.x_std,
+            "y_mean": first_ds.y_mean,
+            "y_std": first_ds.y_std,
             "config": {
-                "in_dim": NODE_FEAT_DIM,
-                "d_model": D_MODEL,
-                "num_heads": NUM_HEADS,
-                "num_layers": NUM_LAYERS,
-                "dim_ff": DIM_FF,
-                "dropout": DROPOUT,
-                "window_size": WINDOW_SIZE,
-                "num_modalities": 4,
-                "knn_k": 8,
+                "data": asdict(DATA_CFG),
+                "model": asdict(MODEL_CFG),
+                "train": asdict(TRAIN_CFG),
+                "in_dim": first_ds.node_feat_dim,
+                "window_size": DATA_CFG.window_size,
+                "num_modalities": len(DATA_CFG.modalities),
             },
         },
-        MODEL_PATH,
+        TRAIN_CFG.model_path,
     )
-    print(f"[Save] Model + norm stats saved to {MODEL_PATH}")
+    print(f"[Save] checkpoint -> {TRAIN_CFG.model_path}")
 
 
 if __name__ == "__main__":
