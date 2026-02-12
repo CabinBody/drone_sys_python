@@ -1,7 +1,16 @@
-pydantic~=2.12.4
 fastapi~=0.121.1
-httpx~=0.28.1
-pydantic-settings~=2.12.0
 uvicorn~=0.35.0
+pydantic~=2.12.4
+pydantic-settings~=2.12.0
+httpx~=0.28.1
+
+# Fusion training/inference stack
 numpy~=2.2.5
+pandas>=2.2,<3
+matplotlib>=3.8,<4
+
+torch>=2.2,<3
+
 openai~=2.12.0
+# Dataset simulation (BlueSky)
+bluesky-simulator>=1.1

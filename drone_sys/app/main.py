@@ -1,4 +1,12 @@
 # drone_sys/app/main.py
+import sys
+from pathlib import Path
+
+if __package__ in (None, ""):
+    _PROJECT_ROOT = Path(__file__).resolve().parents[2]
+    if str(_PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(_PROJECT_ROOT))
+
 from fastapi import FastAPI
 from drone_sys.app.routers import get_all_routers
 
@@ -23,4 +31,7 @@ app = create_app()
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("drone_sys.app.main:app", host="0.0.0.0", port=8080, reload=True)
+    if __package__ in (None, ""):
+        uvicorn.run(app, host="0.0.0.0", port=8080, reload=False)
+    else:
+        uvicorn.run("drone_sys.app.main:app", host="0.0.0.0", port=8080, reload=True)
