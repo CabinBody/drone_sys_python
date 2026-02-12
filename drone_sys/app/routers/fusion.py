@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import math
-import os
 import sys
-import tempfile
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -171,11 +169,10 @@ def _build_truth_rows(per_mod_rows: Dict[str, List[Dict[str, Any]]]) -> List[Dic
     return truth_rows
 
 
-def _rows_to_csv(df_rows: List[Dict[str, Any]], path: str) -> None:
-    pd.DataFrame(df_rows).to_csv(path, index=False)
-
-
-def _build_raw_dataset_from_packets(packets: List[Dict[str, Any]], req_uav_id: Optional[str], raw_dir: str) -> None:
+def _build_raw_frames_from_packets(
+    packets: List[Dict[str, Any]],
+    req_uav_id: Optional[str],
+) -> Tuple[pd.DataFrame, Dict[str, pd.DataFrame]]:
     if len(packets) != 20:
         raise HTTPException(status_code=400, detail=f"Expected exactly 20 packets, got {len(packets)}")
 
@@ -208,13 +205,87 @@ def _build_raw_dataset_from_packets(packets: List[Dict[str, Any]], req_uav_id: O
             per_mod_rows[m].append(row)
 
     truth_rows = _build_truth_rows(per_mod_rows)
+    truth_df = pd.DataFrame(truth_rows)
+    raw_frames = {
+        "gps": pd.DataFrame(per_mod_rows["gps"]),
+        "radar": pd.DataFrame(per_mod_rows["radar"]),
+        "fiveg": pd.DataFrame(per_mod_rows["fiveg"]),
+        "tdoa": pd.DataFrame(per_mod_rows["tdoa"]),
+        "acoustic": pd.DataFrame(per_mod_rows["acoustic"]),
+    }
+    return truth_df, raw_frames
 
-    _rows_to_csv(truth_rows, os.path.join(raw_dir, "truth.csv"))
-    _rows_to_csv(per_mod_rows["gps"], os.path.join(raw_dir, "gps.csv"))
-    _rows_to_csv(per_mod_rows["radar"], os.path.join(raw_dir, "radar.csv"))
-    _rows_to_csv(per_mod_rows["fiveg"], os.path.join(raw_dir, "5g_a.csv"))
-    _rows_to_csv(per_mod_rows["tdoa"], os.path.join(raw_dir, "tdoa.csv"))
-    _rows_to_csv(per_mod_rows["acoustic"], os.path.join(raw_dir, "acoustic.csv"))
+
+def _process_modality_df(modality: str, df_in: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
+    if df_in is None or df_in.empty:
+        return pd.DataFrame()
+
+    mc = cfg["modalities"][modality]
+    gc = cfg["confidence"]
+    df = df_in.copy()
+
+    phi_cols: List[str] = []
+    rt_items: List[Tuple[str, float]] = []
+    st_items: List[Tuple[str, float]] = []
+    quality_cols: List[str] = []
+
+    for metric, spec in mc["metrics"].items():
+        if metric not in df.columns:
+            raise ValueError(f"[{modality}] missing quality column: {metric}")
+        quality_cols.append(metric)
+        pc = f"phi_{metric}"
+        op = spec["op"]
+        if op == "pos":
+            df[pc] = tc.phi_pos(df[metric], spec["l"], spec["u"])
+        elif op == "neg":
+            df[pc] = tc.phi_neg(df[metric], spec["l"], spec["u"])
+        elif op == "cat":
+            df[pc] = tc.phi_cat(df[metric], spec["mapping"])
+        else:
+            raise ValueError(f"[{modality}] unsupported op: {op}")
+        phi_cols.append(pc)
+        if spec["group"] == "rt":
+            rt_items.append((pc, float(spec.get("weight", 1.0))))
+        elif spec["group"] == "st":
+            st_items.append((pc, float(spec.get("weight", 1.0))))
+        else:
+            raise ValueError(f"[{modality}] unsupported group: {spec['group']}")
+
+    df["rt_m"] = tc.weighted_mean(df, rt_items)
+    df["st_m"] = tc.weighted_mean(df, st_items)
+    if df["rt_m"].isna().all() and not df["st_m"].isna().all():
+        df["rt_m"] = df["st_m"]
+    if df["st_m"].isna().all() and not df["rt_m"].isna().all():
+        df["st_m"] = df["rt_m"]
+
+    alpha = float(mc.get("alpha", gc["alpha"]))
+    df["confidence"] = tc.confidence(
+        df["rt_m"],
+        df["st_m"],
+        alpha=alpha,
+        mode=gc["mode"],
+        k=float(gc["sigmoid_k"]),
+        b=float(gc["sigmoid_b"]),
+    )
+
+    passthrough_cols = [
+        c for c in df.columns
+        if c not in quality_cols and not c.startswith("phi_") and c not in ("rt_m", "st_m", "confidence")
+    ]
+    keep_base = [c for c in tc.BASE_COLS if c in passthrough_cols]
+    keep_extra = [c for c in passthrough_cols if c not in keep_base]
+    out_cols = keep_base + keep_extra + phi_cols + ["rt_m", "st_m", "confidence"]
+    return df[out_cols].copy()
+
+
+def _build_processed_modality_frames(
+    raw_frames: Dict[str, pd.DataFrame],
+    cfg: Dict[str, Any],
+) -> Dict[str, pd.DataFrame]:
+    out: Dict[str, pd.DataFrame] = {}
+    for m in _REQ_MODALITIES:
+        out[m] = _process_modality_df(m, raw_frames.get(m, pd.DataFrame()), cfg)
+    return out
 
 
 @lru_cache(maxsize=1)
@@ -237,7 +308,10 @@ def _load_runtime_bundle():
     return torch, inf, model, x_mean, x_std, y_mean, y_std, runtime
 
 
-def _run_model_inference(processed_dir: str) -> List[Dict[str, float]]:
+def _run_model_inference(
+    truth_df: pd.DataFrame,
+    mod_frames_by_request_name: Dict[str, pd.DataFrame],
+) -> List[Dict[str, float]]:
     torch, inf, model, x_mean, x_std, y_mean, y_std, runtime = _load_runtime_bundle()
     in_dim = int(runtime["in_dim"])
     window_size = int(runtime["window_size"])
@@ -245,14 +319,13 @@ def _run_model_inference(processed_dir: str) -> List[Dict[str, float]]:
     align_tolerance_s = float(runtime["align_tolerance_s"])
     modalities = list(runtime["modalities"])
 
-    truth_path = os.path.join(processed_dir, "truth.csv")
-    truth = pd.read_csv(truth_path)
+    truth = truth_df.copy()
     if truth.empty:
-        raise RuntimeError("truth.csv is empty after transfer_confidence conversion.")
+        raise RuntimeError("truth dataframe is empty.")
 
     id_col = inf._detect_id_col(truth)
     if id_col is None:
-        raise RuntimeError("truth.csv must contain `uav_id` or `id`.")
+        raise RuntimeError("truth dataframe must contain `uav_id` or `id`.")
 
     uav_value = truth.iloc[0][id_col]
     df_t = truth[truth[id_col] == uav_value].sort_values("timestamp").reset_index(drop=True)
@@ -272,9 +345,8 @@ def _run_model_inference(processed_dir: str) -> List[Dict[str, float]]:
 
     mod_frames: Dict[str, pd.DataFrame] = {}
     for m in modalities:
-        fname = "5g_a.csv" if m == "5g_a" else f"{m}.csv"
-        path = os.path.join(processed_dir, fname)
-        mod_frames[m] = pd.read_csv(path) if os.path.exists(path) else pd.DataFrame()
+        req_key = "fiveg" if m == "5g_a" else m
+        mod_frames[m] = mod_frames_by_request_name.get(req_key, pd.DataFrame()).copy()
 
     if in_dim >= inf.NODE_FEAT_DIM:
         windows, starts = inf.build_sparse_windows_new(
@@ -393,18 +465,12 @@ def run_fusion_http(payload: Any = Body(...)):
     - list of {timestamp, lat, lon, alt}
     """
     packets, req_uav_id = _extract_packets(payload)
-    with tempfile.TemporaryDirectory(prefix="fusion_http_") as tmp:
-        raw_dir = os.path.join(tmp, "raw")
-        processed_dir = os.path.join(tmp, "processed")
-        os.makedirs(raw_dir, exist_ok=True)
-        os.makedirs(processed_dir, exist_ok=True)
-
-        _build_raw_dataset_from_packets(packets=packets, req_uav_id=req_uav_id, raw_dir=raw_dir)
+    try:
+        truth_df, raw_frames = _build_raw_frames_from_packets(packets=packets, req_uav_id=req_uav_id)
         cfg = tc.default_cfg()
-        tc.process_one_dir(in_dir=raw_dir, out_dir=processed_dir, cfg=cfg, label="http")
-        try:
-            return _run_model_inference(processed_dir=processed_dir)
-        except HTTPException:
-            raise
-        except Exception as ex:
-            raise HTTPException(status_code=500, detail=f"Fusion inference failed: {ex}") from ex
+        processed_mod_frames = _build_processed_modality_frames(raw_frames=raw_frames, cfg=cfg)
+        return _run_model_inference(truth_df=truth_df, mod_frames_by_request_name=processed_mod_frames)
+    except HTTPException:
+        raise
+    except Exception as ex:
+        raise HTTPException(status_code=500, detail=f"Fusion inference failed: {ex}") from ex

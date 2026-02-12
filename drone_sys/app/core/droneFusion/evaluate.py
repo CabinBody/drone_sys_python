@@ -14,12 +14,12 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 # CONFIG
 # ==============================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_ROOT = r"../datasetBuilder/dataset-processed/scenario_eval_high_missing_mixed_100x60/"
+DATA_ROOT = r"../datasetBuilder/dataset-processed/test-datasets/scenario_multi_source_100x60/"
 MODEL_PATH = os.path.join(BASE_DIR, "graph_fusion_model_processed.pt")
 NORM_PATH = os.path.join(BASE_DIR, "graph_norm_stats_processed_sparse_enu.pth")
 DEVICE = inf.DEVICE
 
-OUTPUT_DIR = os.path.join(BASE_DIR, "eval_results_high_missing")
+OUTPUT_DIR = os.path.join(BASE_DIR, "eval_results")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 SAVE_FIG = True

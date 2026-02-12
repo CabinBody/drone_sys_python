@@ -26,7 +26,7 @@ class DataConfig:
     align_tolerance_s: float = 0.55
     modalities: list = field(default_factory=lambda: list(MODALITIES))
     norm_stats_path: str = "graph_norm_stats_processed_sparse_enu.pth"
-    rebuild_norm_stats: bool = False
+    rebuild_norm_stats: bool = True
     max_batches: int = 0  # 0 means no limit
     batch_prefix: str = "batch"
     dataset_verbose: bool = True
@@ -50,9 +50,9 @@ class ModelConfig:
 
 @dataclass
 class TrainConfig:
-    batch_size: int = 12
+    batch_size: int = 8
     epochs: int = 15
-    lr: float = 4e-4
+    lr: float = 3e-4
     weight_decay: float = 5e-5
     grad_clip: float = 1.0
     num_workers: int = 16
@@ -64,7 +64,7 @@ class TrainConfig:
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     model_path: str = "graph_fusion_model_processed.pt"
     resume_model_path: str = ""
-    resume_if_model_exists: bool = True
+    resume_if_model_exists: bool = False
     resume_strict: bool = True
 
 
