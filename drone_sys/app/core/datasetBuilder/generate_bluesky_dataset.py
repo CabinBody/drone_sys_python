@@ -10,14 +10,16 @@ Outputs:
 3) dataset_summary.json
 """
 
-import argparse
 import json
 import math
 import os
 import time
+import atexit
+import hashlib
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from multiprocessing import get_context
 
-import bluesky as bs
 import numpy as np
 import pandas as pd
 
@@ -32,12 +34,47 @@ MODALITY_FILES = {
 
 SCENARIOS = ["A", "B", "C", "D", "E"]
 DESIRED_PRECISION_ORDER = ["gps", "radar", "fiveg", "tdoa", "acoustic"]
+DEFAULT_DATASET_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dataset_config.json")
+_BS_INITIALIZED = False
+bs = None
+
+
+def _cleanup_bluesky():
+    try:
+        if bs is not None and getattr(bs, "sim", None) is not None:
+            bs.sim.reset()
+    except Exception:
+        pass
+
+
+atexit.register(_cleanup_bluesky)
+
+
+def ensure_bluesky_runtime():
+    global bs
+    global _BS_INITIALIZED
+    if bs is None:
+        import bluesky as bs_mod
+        bs = bs_mod
+    if not _BS_INITIALIZED:
+        bs.init(guimode=False)
+        _BS_INITIALIZED = True
+    else:
+        try:
+            if getattr(bs, "sim", None) is not None:
+                bs.sim.reset()
+        except Exception:
+            # Fallback: re-init once if previous runtime got into bad state.
+            bs.init(guimode=False)
+            _BS_INITIALIZED = True
 
 
 def default_config():
     return {
         "seed": 20260209,
         "output_dir": "./dataset/scenario_multi_source_5000x120",
+        "worker_num": 8,
+        "use_multiprocessing": True,
         "batching": {
             "enabled": True,
             "batch_size": 200,
@@ -100,6 +137,28 @@ def default_config():
             ],
         },
         "drift": {"enabled": True, "start_prob": {"C": 0.06, "E": 0.14}, "duration_s": [5.0, 20.0], "bias_mps": 0.35, "rw_sigma_m": 0.9, "decay": 0.93},
+        # Missing-control hook for dataset ablation / stress tests.
+        # Missing probability is transformed as:
+        #   p' = clamp(p * global_scale * scenario_scale[tag] * modality_scale[modality]
+        #              + global_bias + modality_bias[modality], 0, 1)
+        # and then optional hard overrides are applied:
+        #   force_missing_modalities / force_available_modalities.
+        "missing_control": {
+            "global_scale": 1.0,
+            "global_bias": 0.0,
+            "scenario_scale": {"A": 1.0, "B": 1.0, "C": 1.0, "D": 1.0, "E": 1.0},
+            "modality_scale": {"gps": 1.0, "radar": 1.0, "fiveg": 1.0, "tdoa": 1.0, "acoustic": 1.0},
+            "modality_bias": {"gps": 0.0, "radar": 0.0, "fiveg": 0.0, "tdoa": 0.0, "acoustic": 0.0},
+            "force_missing_modalities": [],
+            "force_available_modalities": [],
+            "random_blackout": {
+                "enabled": False,
+                "event_count": [0, 0],
+                "modality_count": [2, 5],
+                "duration_s": [5.0, 10.0],
+                "modalities": ["gps", "radar", "fiveg", "tdoa", "acoustic"],
+            },
+        },
     }
 
 
@@ -166,7 +225,7 @@ def extract_vel():
 
 def run_bluesky_truth(cfg, rng):
     sim_cfg = cfg["simulation"]
-    bs.init(guimode=False)
+    ensure_bluesky_runtime()
     sim = bs.sim
 
     n = int(sim_cfg["uav_count"])
@@ -288,6 +347,171 @@ def acoustic_detect_prob(tag, snra, noise_strength, env_pen, cfg):
         - float(ac.get("noise_weight", 0.18)) * noise_strength
     )
     return clamp(p, 0.01, 0.999)
+
+
+def apply_missing_control(modality, tag, miss_p, cfg):
+    mc = cfg.get("missing_control", {}) if isinstance(cfg, dict) else {}
+    force_missing = set(mc.get("force_missing_modalities", []))
+    force_available = set(mc.get("force_available_modalities", []))
+
+    if modality in force_missing:
+        return 1.0, True, False
+    if modality in force_available:
+        return 0.0, False, True
+
+    g_scale = float(mc.get("global_scale", 1.0))
+    g_bias = float(mc.get("global_bias", 0.0))
+    s_scale = float(mc.get("scenario_scale", {}).get(tag, 1.0))
+    m_scale = float(mc.get("modality_scale", {}).get(modality, 1.0))
+    m_bias = float(mc.get("modality_bias", {}).get(modality, 0.0))
+    p = float(miss_p) * g_scale * s_scale * m_scale + g_bias + m_bias
+    return clamp(p, 0.0, 1.0), False, False
+
+
+def stable_u32(*parts):
+    raw = "|".join(str(x) for x in parts).encode("utf-8")
+    return int(hashlib.md5(raw).hexdigest()[:8], 16)
+
+
+def resolve_worker_num(cfg):
+    wn = int(cfg.get("worker_num", 8))
+    return max(1, wn)
+
+
+def _modality_uid_seed(cfg, batch_label, modality, uid):
+    seed_base = int(cfg.get("seed", 0))
+    return stable_u32(seed_base, batch_label, modality, uid)
+
+
+def _modality_worker(payload):
+    modality = payload["modality"]
+    uid = payload["uid"]
+    tk = payload["tk"]
+    cfg = payload["cfg"]
+    seed = int(payload["seed"])
+    rng = np.random.default_rng(seed)
+    df = generate_modality_for_uav(modality, uid, tk, cfg, rng)
+    return uid, df
+
+
+def iter_modality_results(modality, uids, cache, cfg, batch_label, log_prefix=""):
+    worker_num = resolve_worker_num(cfg)
+    use_mp = bool(cfg.get("use_multiprocessing", True)) and worker_num > 1
+    payloads = [
+        {
+            "modality": modality,
+            "uid": uid,
+            "tk": cache[uid],
+            "cfg": cfg,
+            "seed": _modality_uid_seed(cfg, batch_label, modality, uid),
+        }
+        for uid in uids
+    ]
+
+    if not use_mp:
+        for p in payloads:
+            yield _modality_worker(p)
+        return
+
+    mp_ctx = get_context("spawn")
+    with ProcessPoolExecutor(max_workers=worker_num, mp_context=mp_ctx) as ex:
+        fut_map = {ex.submit(_modality_worker, p): p["uid"] for p in payloads}
+        done = 0
+        for fut in as_completed(fut_map):
+            uid = fut_map[fut]
+            try:
+                out_uid, df = fut.result()
+            except Exception as ex_err:
+                raise RuntimeError(f"worker failed: modality={modality}, uid={uid}, err={ex_err}") from ex_err
+            done += 1
+            if done % 50 == 0 or done == len(fut_map):
+                if log_prefix:
+                    print(f"    [{log_prefix}:{modality}] workers done {done}/{len(fut_map)}")
+                else:
+                    print(f"    [{modality}] workers done {done}/{len(fut_map)}")
+            yield out_uid, df
+
+
+def _merge_intervals(intervals):
+    if not intervals:
+        return []
+    arr = sorted([(float(a), float(b)) for a, b in intervals], key=lambda x: x[0])
+    out = [list(arr[0])]
+    for s, e in arr[1:]:
+        if s <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], e)
+        else:
+            out.append([s, e])
+    return [(a, b) for a, b in out]
+
+
+def build_random_blackout_plan(uid, cfg):
+    mc = cfg.get("missing_control", {}) if isinstance(cfg, dict) else {}
+    rb = mc.get("random_blackout", {}) if isinstance(mc, dict) else {}
+    if not bool(rb.get("enabled", False)):
+        return {}
+
+    sim = cfg.get("simulation", {})
+    duration_total = float(sim.get("duration_s", 0.0))
+    if duration_total <= 0.0:
+        return {}
+
+    event_cfg = rb.get("event_count", [0, 0])
+    if isinstance(event_cfg, (int, float)):
+        event_lo = event_hi = int(event_cfg)
+    else:
+        event_lo = int(event_cfg[0]) if len(event_cfg) > 0 else 0
+        event_hi = int(event_cfg[1]) if len(event_cfg) > 1 else event_lo
+    event_lo = max(0, event_lo)
+    event_hi = max(event_lo, event_hi)
+    if event_hi == 0:
+        return {}
+
+    mod_pool = [m for m in rb.get("modalities", list(MODALITY_FILES.keys())) if m in MODALITY_FILES]
+    if len(mod_pool) == 0:
+        return {}
+
+    mod_count_cfg = rb.get("modality_count", [2, 5])
+    if isinstance(mod_count_cfg, (int, float)):
+        mod_lo = mod_hi = int(mod_count_cfg)
+    else:
+        mod_lo = int(mod_count_cfg[0]) if len(mod_count_cfg) > 0 else 2
+        mod_hi = int(mod_count_cfg[1]) if len(mod_count_cfg) > 1 else mod_lo
+    mod_lo = max(1, min(mod_lo, len(mod_pool)))
+    mod_hi = max(mod_lo, min(mod_hi, len(mod_pool)))
+
+    dur_cfg = rb.get("duration_s", [5.0, 10.0])
+    if isinstance(dur_cfg, (int, float)):
+        dur_lo = dur_hi = float(dur_cfg)
+    else:
+        dur_lo = float(dur_cfg[0]) if len(dur_cfg) > 0 else 5.0
+        dur_hi = float(dur_cfg[1]) if len(dur_cfg) > 1 else dur_lo
+    dur_lo = max(0.1, dur_lo)
+    dur_hi = max(dur_lo, dur_hi)
+
+    seed = stable_u32(cfg.get("seed", 0), "blackout", uid)
+    rng = np.random.default_rng(seed)
+    n_events = int(rng.integers(event_lo, event_hi + 1)) if event_hi > event_lo else event_lo
+
+    plan = {m: [] for m in mod_pool}
+    for _ in range(n_events):
+        n_mod = int(rng.integers(mod_lo, mod_hi + 1)) if mod_hi > mod_lo else mod_lo
+        mods = list(rng.choice(mod_pool, size=n_mod, replace=False))
+        dur = float(rng.uniform(dur_lo, dur_hi))
+        start_max = max(duration_total - dur, 0.0)
+        start = float(rng.uniform(0.0, start_max)) if start_max > 0 else 0.0
+        end = start + dur
+        for m in mods:
+            plan[m].append((start, end))
+
+    return {m: _merge_intervals(v) for m, v in plan.items() if len(v) > 0}
+
+
+def in_blackout(t_rel, intervals):
+    for s, e in intervals:
+        if s <= t_rel <= e:
+            return True
+    return False
 
 
 def sample_quality(modality, tag, pen, st, cfg, rng):
@@ -421,6 +645,8 @@ def generate_modality_for_uav(modality, uid, tk, cfg, rng):
     tag = scenario_series(t_rel, cfg["scenario_mix"], cfg["scenario_duration_s"], rng)
     drift_st = {"vec": np.zeros(3), "bias": np.zeros(3), "remain": 0.0}
     mod_st = {"fault": 0, "trend": 0.0}
+    blackout_plan = build_random_blackout_plan(uid, cfg)
+    blackout_intervals = blackout_plan.get(modality, [])
     prev = t_rel[0]
     rows = []
 
@@ -430,6 +656,9 @@ def generate_modality_for_uav(modality, uid, tk, cfg, rng):
         tg = str(tag[i])
         pen = env_penalty(modality, float(ti["lat"][i]), float(ti["lon"][i]), ta, cfg)
         q, pos_s, vel_s, delay_ms, miss_p = sample_quality(modality, tg, pen, mod_st, cfg, rng)
+        miss_p_adj, force_missing, force_available = apply_missing_control(modality, tg, miss_p, cfg)
+        blackout_now = int(in_blackout(tt, blackout_intervals))
+        force_missing = bool(force_missing or blackout_now == 1)
 
         dt = max(tt - prev, 1.0 / max(mc["rate_hz"], 1e-6))
         drift = update_drift(drift_st, tg, dt, cfg, rng)
@@ -440,9 +669,17 @@ def generate_modality_for_uav(modality, uid, tk, cfg, rng):
         arrival = ta + max(delay_ms, 0.0) / 1000.0 + rng.normal(0.0, mc["arrival_jitter_s"])
 
         if modality == "acoustic":
-            p_det = acoustic_detect_prob(tg, float(q["SNRa"]), float(q["n"]), pen, cfg)
-            detected = int(rng.random() < p_det)
-            miss = int((detected == 0) or (rng.random() < clamp(miss_p, 0.0, 0.98)))
+            if force_missing:
+                detected = 0
+                miss = 1
+            else:
+                p_det = acoustic_detect_prob(tg, float(q["SNRa"]), float(q["n"]), pen, cfg)
+                detected = int(rng.random() < p_det)
+                if force_available:
+                    detected = 1
+                    miss = 0
+                else:
+                    miss = int((detected == 0) or (rng.random() < clamp(miss_p_adj, 0.0, 1.0)))
             if detected == 1 and miss == 0:
                 spl_lo, spl_hi = cfg.get("acoustic_detection", {}).get("spl_range_db", [35.0, 110.0])
                 spl = clamp(
@@ -464,6 +701,7 @@ def generate_modality_for_uav(modality, uid, tk, cfg, rng):
                 "acoustic_energy": energy,
                 "scenario_tag": tg,
                 "missing_flag": miss,
+                "blackout_flag": blackout_now,
                 "arrival_time": arrival,
             }
         else:
@@ -479,7 +717,12 @@ def generate_modality_for_uav(modality, uid, tk, cfg, rng):
             vz = vz0 + rng.normal(0.0, 0.8 * vel_s)
             speed = math.sqrt(vx * vx + vy * vy + vz * vz)
 
-            miss = int(rng.random() < clamp(miss_p, 0.0, 0.98))
+            if force_missing:
+                miss = 1
+            elif force_available:
+                miss = 0
+            else:
+                miss = int(rng.random() < clamp(miss_p_adj, 0.0, 1.0))
             if miss == 1:
                 lat = lon = alt = vx = vy = vz = speed = np.nan
 
@@ -495,6 +738,7 @@ def generate_modality_for_uav(modality, uid, tk, cfg, rng):
                 "speed": speed,
                 "scenario_tag": tg,
                 "missing_flag": miss,
+                "blackout_flag": blackout_now,
                 "arrival_time": arrival,
             }
         row.update(q)
@@ -608,7 +852,6 @@ def write_batch(batch_dir, batch_uids, cache, cfg, batch_label):
     truth_df.to_csv(os.path.join(batch_dir, "truth.csv"), index=False)
 
     mod_sum = {}
-    seed_base = int(cfg["seed"])
     for m, fn in MODALITY_FILES.items():
         p = os.path.join(batch_dir, fn)
         if os.path.exists(p):
@@ -618,9 +861,17 @@ def write_batch(batch_dir, batch_uids, cache, cfg, batch_label):
         stat = NumStat()
         rows_total = 0
 
-        batch_rng = np.random.default_rng(seed_base + (abs(hash((batch_label, m))) % 10_000_000))
-        for i, uid in enumerate(batch_uids, start=1):
-            df = generate_modality_for_uav(m, uid, cache[uid], cfg, batch_rng)
+        for i, (uid, df) in enumerate(
+            iter_modality_results(
+                modality=m,
+                uids=batch_uids,
+                cache=cache,
+                cfg=cfg,
+                batch_label=batch_label,
+                log_prefix=batch_label,
+            ),
+            start=1,
+        ):
             if df.empty:
                 continue
             df.to_csv(p, mode="a", header=not wrote, index=False)
@@ -695,6 +946,7 @@ def run(cfg):
     else:
         truth.to_csv(os.path.join(out, "truth.csv"), index=False)
         mod_sum = {}
+        label = "root"
         for m, fn in MODALITY_FILES.items():
             p = os.path.join(out, fn)
             if os.path.exists(p):
@@ -704,8 +956,17 @@ def run(cfg):
             stat = NumStat()
             rows_total = 0
 
-            for i, uid in enumerate(uids, start=1):
-                df = generate_modality_for_uav(m, uid, cache[uid], cfg, rng)
+            for i, (uid, df) in enumerate(
+                iter_modality_results(
+                    modality=m,
+                    uids=uids,
+                    cache=cache,
+                    cfg=cfg,
+                    batch_label=label,
+                    log_prefix=label,
+                ),
+                start=1,
+            ):
                 if df.empty:
                     continue
                 df.to_csv(p, mode="a", header=not wrote, index=False)
@@ -733,40 +994,43 @@ def run(cfg):
     print(f"[DONE] {out}")
 
 
-def parse_args():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--output-dir", type=str, default=None)
-    ap.add_argument("--uav-count", type=int, default=None)
-    ap.add_argument("--duration", type=float, default=None)
-    ap.add_argument("--truth-dt", type=float, default=None)
-    ap.add_argument("--seed", type=int, default=None)
-    ap.add_argument("--batch-size", type=int, default=None)
-    ap.add_argument("--quick", action="store_true")
-    ap.add_argument("--config-json", type=str, default=None)
-    return ap.parse_args()
+def run_profile_batch(batch_cfg_path):
+    with open(batch_cfg_path, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+
+    if not isinstance(payload, dict):
+        raise ValueError("profile json must be an object")
+    profiles = payload.get("profiles")
+    if not isinstance(profiles, list) or len(profiles) == 0:
+        raise ValueError("profile json must contain non-empty `profiles` list")
+
+    base_override = payload.get("base_override", {})
+    root_output_dir = payload.get("root_output_dir")
+
+    for i, prof in enumerate(profiles, start=1):
+        if not isinstance(prof, dict):
+            raise ValueError(f"profile #{i} must be an object")
+        name = str(prof.get("name", f"profile_{i:02d}"))
+        override = prof.get("override", {})
+
+        cfg = default_config()
+        if isinstance(base_override, dict) and len(base_override) > 0:
+            deep_update(cfg, base_override)
+        if isinstance(override, dict) and len(override) > 0:
+            deep_update(cfg, override)
+
+        if root_output_dir is not None and "output_dir" not in override:
+            cfg["output_dir"] = os.path.join(str(root_output_dir), name)
+
+        print(f"\n[PROFILE {i}/{len(profiles)}] {name}")
+        print(f"  output_dir: {cfg['output_dir']}")
+        run(cfg)
 
 
 if __name__ == "__main__":
-    args = parse_args()
-    cfg = default_config()
-    if args.config_json:
-        with open(args.config_json, "r", encoding="utf-8") as f:
-            deep_update(cfg, json.load(f))
-    if args.output_dir is not None:
-        cfg["output_dir"] = args.output_dir
-    if args.uav_count is not None:
-        cfg["simulation"]["uav_count"] = int(args.uav_count)
-    if args.duration is not None:
-        cfg["simulation"]["duration_s"] = float(args.duration)
-    if args.truth_dt is not None:
-        cfg["simulation"]["truth_dt_s"] = float(args.truth_dt)
-    if args.seed is not None:
-        cfg["seed"] = int(args.seed)
-    if args.batch_size is not None:
-        cfg.setdefault("batching", {})
-        cfg["batching"]["enabled"] = True
-        cfg["batching"]["batch_size"] = int(args.batch_size)
-    if args.quick:
-        cfg["simulation"]["uav_count"] = min(int(cfg["simulation"]["uav_count"]), 200)
-        cfg["simulation"]["duration_s"] = min(float(cfg["simulation"]["duration_s"]), 30.0)
-    run(cfg)
+    if not os.path.exists(DEFAULT_DATASET_CONFIG_PATH):
+        raise FileNotFoundError(
+            f"dataset config not found: {DEFAULT_DATASET_CONFIG_PATH}\n"
+            "create this file and define your dataset profiles."
+        )
+    run_profile_batch(DEFAULT_DATASET_CONFIG_PATH)

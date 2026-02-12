@@ -19,7 +19,7 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 @dataclass
 class DataConfig:
-    data_dir: str = DATA_ROOT
+    data_dir: str = r"../datasetBuilder/dataset-processed/train-datasets"
     window_size: int = 20
     stride: int = 8
     truth_dt_s: float = 1.0
@@ -50,12 +50,12 @@ class ModelConfig:
 
 @dataclass
 class TrainConfig:
-    batch_size: int = 8
+    batch_size: int = 12
     epochs: int = 15
-    lr: float = 3e-4
+    lr: float = 4e-4
     weight_decay: float = 5e-5
     grad_clip: float = 1.0
-    num_workers: int = 2
+    num_workers: int = 16
     loader_persistent_workers: bool = True
     loader_prefetch_factor: int = 2
     loader_multiprocessing_context: str = "spawn"
@@ -63,11 +63,81 @@ class TrainConfig:
     log_every_step: bool = True
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     model_path: str = "graph_fusion_model_processed.pt"
+    resume_model_path: str = ""
+    resume_if_model_exists: bool = True
+    resume_strict: bool = True
 
 
 DATA_CFG = DataConfig()
 MODEL_CFG = ModelConfig()
 TRAIN_CFG = TrainConfig()
+
+
+def _safe_torch_load(path: str):
+    try:
+        return torch.load(path, map_location="cpu", weights_only=False)
+    except TypeError:
+        return torch.load(path, map_location="cpu")
+
+
+def _extract_state_dict(payload):
+    if not isinstance(payload, dict):
+        raise RuntimeError("checkpoint payload is not a dict")
+    if "model_state_dict" in payload and isinstance(payload["model_state_dict"], dict):
+        state = payload["model_state_dict"]
+    elif "state_dict" in payload and isinstance(payload["state_dict"], dict):
+        state = payload["state_dict"]
+    elif len(payload) > 0 and all(isinstance(v, torch.Tensor) for v in payload.values()):
+        state = payload
+    else:
+        raise RuntimeError("checkpoint has no model_state_dict/state_dict")
+    if len(state) > 0 and all(k.startswith("module.") for k in state.keys()):
+        state = {k[len("module.") :]: v for k, v in state.items()}
+    return state
+
+
+def _resolve_resume_path(train_cfg: TrainConfig):
+    explicit = str(train_cfg.resume_model_path or "").strip()
+    if explicit:
+        return explicit
+    if bool(train_cfg.resume_if_model_exists) and os.path.exists(train_cfg.model_path):
+        return train_cfg.model_path
+    return ""
+
+
+def _maybe_restore_norm_stats_from_checkpoint(norm_stats_path: str, resume_path: str, rebuild_norm_stats: bool):
+    if bool(rebuild_norm_stats):
+        print("[Norm] rebuild_norm_stats=True, skip restoring norm stats from checkpoint")
+        return
+    if os.path.exists(norm_stats_path):
+        print(f"[Norm] using existing norm stats: {norm_stats_path}")
+        return
+    if not resume_path:
+        print("[Norm] no resume checkpoint and norm stats missing; will rebuild from current dataset")
+        return
+
+    payload = _safe_torch_load(resume_path)
+    if not isinstance(payload, dict):
+        print("[Norm] resume checkpoint is not dict; cannot restore norm stats")
+        return
+    keys = ("x_mean", "x_std", "y_mean", "y_std")
+    if not all(k in payload for k in keys):
+        print("[Norm] resume checkpoint has no x/y mean/std; cannot restore norm stats")
+        return
+
+    out_dir = os.path.dirname(os.path.abspath(norm_stats_path))
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+    torch.save(
+        {
+            "x_mean": torch.as_tensor(payload["x_mean"]).cpu(),
+            "x_std": torch.as_tensor(payload["x_std"]).cpu(),
+            "y_mean": torch.as_tensor(payload["y_mean"]).cpu(),
+            "y_std": torch.as_tensor(payload["y_std"]).cpu(),
+        },
+        norm_stats_path,
+    )
+    print(f"[Norm] restored norm stats from {resume_path} -> {norm_stats_path}")
 
 
 def train_one_epoch(
@@ -177,6 +247,18 @@ def main():
     print("[Config] model:", asdict(MODEL_CFG))
     print("[Config] train:", asdict(TRAIN_CFG))
 
+    resume_path = _resolve_resume_path(TRAIN_CFG)
+    if resume_path:
+        print(f"[Resume] checkpoint: {resume_path}")
+    else:
+        print("[Resume] disabled (train from scratch)")
+
+    _maybe_restore_norm_stats_from_checkpoint(
+        norm_stats_path=DATA_CFG.norm_stats_path,
+        resume_path=resume_path,
+        rebuild_norm_stats=DATA_CFG.rebuild_norm_stats,
+    )
+
     units = list_data_units(
         data_dir=DATA_CFG.data_dir,
         batch_prefix=DATA_CFG.batch_prefix,
@@ -204,6 +286,19 @@ def main():
         num_modalities=len(DATA_CFG.modalities),
         knn_k=MODEL_CFG.knn_k,
     ).to(TRAIN_CFG.device)
+
+    if resume_path:
+        if not os.path.exists(resume_path):
+            raise FileNotFoundError(f"resume checkpoint not found: {resume_path}")
+        resume_payload = _safe_torch_load(resume_path)
+        resume_state = _extract_state_dict(resume_payload)
+        load_ret = model.load_state_dict(resume_state, strict=bool(TRAIN_CFG.resume_strict))
+        if bool(TRAIN_CFG.resume_strict):
+            print("[Resume] model weights loaded (strict=True)")
+        else:
+            missing = len(getattr(load_ret, "missing_keys", []))
+            unexpected = len(getattr(load_ret, "unexpected_keys", []))
+            print(f"[Resume] model weights loaded (strict=False) | missing={missing} unexpected={unexpected}")
 
     optimizer = torch.optim.AdamW(
         model.parameters(),

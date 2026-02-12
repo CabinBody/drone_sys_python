@@ -9,8 +9,6 @@ venv/
 .env/
 
 # Model files
-*.pt
-*.pth
 *.onnx
 
 # Logs
@@ -27,5 +25,6 @@ logs/
 # OS
 .DS_Store
 .gz
-.json
-*.json
+.cache
+**/dataset-processed/train-datasets/
+**/dataset/training-datasets/

@@ -1,0 +1,267 @@
+{
+  "root_output_dir": "./dataset/training-datasets",
+  "base_override": {
+    "seed": 20260301,
+    "worker_num": 16,
+    "use_multiprocessing": true,
+    "batching": {
+      "enabled": true,
+      "batch_size": 200,
+      "folder_prefix": "batch"
+    },
+    "simulation": {
+      "uav_count": 1000,
+      "duration_s": 120.0,
+      "truth_dt_s": 1.0
+    }
+  },
+  "profiles": [
+    {
+      "name": "scenario_missing_gps_5000x120",
+      "override": {
+        "seed": 20260311,
+        "simulation": {
+          "uav_count": 5000,
+          "duration_s": 120.0
+        },
+        "missing_control": {
+          "force_missing_modalities": [
+            "gps"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scenario_missing_radar_1000x120",
+      "override": {
+        "seed": 20260312,
+        "simulation": {
+          "uav_count": 1000,
+          "duration_s": 120.0
+        },
+        "missing_control": {
+          "force_missing_modalities": [
+            "radar"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scenario_missing_5ga_1000x120",
+      "override": {
+        "seed": 20260313,
+        "simulation": {
+          "uav_count": 1000,
+          "duration_s": 120.0
+        },
+        "missing_control": {
+          "force_missing_modalities": [
+            "fiveg"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scenario_missing_tdoa_1000x120",
+      "override": {
+        "seed": 20260314,
+        "simulation": {
+          "uav_count": 1000,
+          "duration_s": 120.0
+        },
+        "missing_control": {
+          "force_missing_modalities": [
+            "tdoa"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scenario_missing_acoustic_1000x120",
+      "override": {
+        "seed": 20260315,
+        "simulation": {
+          "uav_count": 1000,
+          "duration_s": 120.0
+        },
+        "missing_control": {
+          "force_missing_modalities": [
+            "acoustic"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scenario_multi_high_missing_2000x120",
+      "override": {
+        "seed": 20260316,
+        "simulation": {
+          "uav_count": 2000,
+          "duration_s": 120.0
+        },
+        "missing_control": {
+          "global_scale": 2.5,
+          "global_bias": 0.1,
+          "scenario_scale": {
+            "A": 1.3,
+            "B": 1.8,
+            "C": 2.4,
+            "D": 2.9,
+            "E": 3.3
+          },
+          "modality_scale": {
+            "gps": 2.2,
+            "radar": 2.4,
+            "fiveg": 2.8,
+            "tdoa": 2.7,
+            "acoustic": 3.0
+          },
+          "modality_bias": {
+            "gps": 0.14,
+            "radar": 0.2,
+            "fiveg": 0.26,
+            "tdoa": 0.24,
+            "acoustic": 0.3
+          }
+        }
+      }
+    },
+    {
+      "name": "scenario_multi_medium_missing_2000x120",
+      "override": {
+        "seed": 20260317,
+        "simulation": {
+          "uav_count": 2000,
+          "duration_s": 120.0
+        },
+        "missing_control": {
+          "global_scale": 1.6,
+          "global_bias": 0.04,
+          "scenario_scale": {
+            "A": 1.1,
+            "B": 1.35,
+            "C": 1.8,
+            "D": 2.1,
+            "E": 2.5
+          },
+          "modality_scale": {
+            "gps": 1.4,
+            "radar": 1.55,
+            "fiveg": 1.8,
+            "tdoa": 1.7,
+            "acoustic": 2.0
+          },
+          "modality_bias": {
+            "gps": 0.06,
+            "radar": 0.08,
+            "fiveg": 0.12,
+            "tdoa": 0.1,
+            "acoustic": 0.14
+          }
+        }
+      }
+    },
+    {
+      "name": "scenario_multi_high_degrade_2000x120",
+      "override": {
+        "seed": 20260318,
+        "simulation": {
+          "uav_count": 2000,
+          "duration_s": 120.0
+        },
+        "modality_error_scale": {
+          "gps": 1.9,
+          "radar": 2.2,
+          "fiveg": 2.4,
+          "tdoa": 2.6,
+          "acoustic": 2.9
+        }
+      }
+    },
+    {
+      "name": "scenario_multi_medium_degrade_2000x120",
+      "override": {
+        "seed": 20260319,
+        "simulation": {
+          "uav_count": 2000,
+          "duration_s": 120.0
+        },
+        "modality_error_scale": {
+          "gps": 1.35,
+          "radar": 1.55,
+          "fiveg": 1.7,
+          "tdoa": 1.85,
+          "acoustic": 2.0
+        }
+      }
+    },
+    {
+      "name": "scenario_random_blackout_2to5mods_5to10s_3000x120",
+      "override": {
+        "seed": 20260320,
+        "simulation": {
+          "uav_count": 3000,
+          "duration_s": 120.0
+        },
+        "missing_control": {
+          "random_blackout": {
+            "enabled": true,
+            "event_count": [
+              4,
+              10
+            ],
+            "modality_count": [
+              2,
+              5
+            ],
+            "duration_s": [
+              5.0,
+              10.0
+            ],
+            "modalities": [
+              "gps",
+              "radar",
+              "fiveg",
+              "tdoa",
+              "acoustic"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scenario_random_blackout_2to5mods_10to20s_3000x120",
+      "override": {
+        "seed": 20260321,
+        "simulation": {
+          "uav_count": 3000,
+          "duration_s": 120.0
+        },
+        "missing_control": {
+          "random_blackout": {
+            "enabled": true,
+            "event_count": [
+              3,
+              8
+            ],
+            "modality_count": [
+              2,
+              5
+            ],
+            "duration_s": [
+              10.0,
+              20.0
+            ],
+            "modalities": [
+              "gps",
+              "radar",
+              "fiveg",
+              "tdoa",
+              "acoustic"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

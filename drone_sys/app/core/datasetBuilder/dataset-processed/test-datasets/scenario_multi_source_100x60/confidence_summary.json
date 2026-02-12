@@ -1,0 +1,151 @@
+{
+  "input_dir": "./dataset/scenario_multi_source_100x60",
+  "output_dir": "./dataset-processed/scenario_multi_source_100x60",
+  "confidence_config": {
+    "mode": "linear",
+    "alpha": 0.65,
+    "sigmoid_k": 8.0,
+    "sigmoid_b": 0.5
+  },
+  "layout": "batched",
+  "batch_count": 1,
+  "batches": [
+    {
+      "batch": "batch01",
+      "path": "batch01",
+      "summary": {
+        "input_dir": "./dataset/scenario_multi_source_100x60\\batch01",
+        "output_dir": "./dataset-processed/scenario_multi_source_100x60\\batch01",
+        "label": "batch01",
+        "truth": {
+          "copied": true,
+          "source": "./dataset/scenario_multi_source_100x60\\batch01\\truth.csv",
+          "output": "./dataset-processed/scenario_multi_source_100x60\\batch01\\truth.csv"
+        },
+        "modalities": {
+          "gps": {
+            "rows": 30100,
+            "dropped_quality_columns": [
+              "Nsat",
+              "DOP",
+              "RTK"
+            ],
+            "added_columns": [
+              "phi_Nsat",
+              "phi_DOP",
+              "phi_RTK",
+              "rt_m",
+              "st_m",
+              "confidence"
+            ],
+            "confidence_mean": 0.6478271985105136,
+            "confidence_std": 0.2219139002328125,
+            "scenario_confidence_mean": {
+              "A": 0.8071137170165037,
+              "B": 0.6274384615122246,
+              "C": 0.28507894636411985,
+              "D": 0.5880717469976269,
+              "E": 0.19184484325663137
+            }
+          },
+          "radar": {
+            "rows": 12100,
+            "dropped_quality_columns": [
+              "E",
+              "Ptrk"
+            ],
+            "added_columns": [
+              "phi_E",
+              "phi_Ptrk",
+              "rt_m",
+              "st_m",
+              "confidence"
+            ],
+            "confidence_mean": 0.5129223250089072,
+            "confidence_std": 0.2464771610524981,
+            "scenario_confidence_mean": {
+              "A": 0.7108783509370995,
+              "B": 0.4904893532179686,
+              "C": 0.1006708858622245,
+              "D": 0.4023340173792064,
+              "E": 0.054784136028027564
+            }
+          },
+          "fiveg": {
+            "rows": 60100,
+            "dropped_quality_columns": [
+              "SNR",
+              "RSSI",
+              "d",
+              "ploss"
+            ],
+            "added_columns": [
+              "phi_SNR",
+              "phi_RSSI",
+              "phi_d",
+              "phi_ploss",
+              "rt_m",
+              "st_m",
+              "confidence"
+            ],
+            "confidence_mean": 0.5705308501170171,
+            "confidence_std": 0.18981125939540083,
+            "scenario_confidence_mean": {
+              "A": 0.7075375190593369,
+              "B": 0.5434313145409476,
+              "C": 0.20339360642871315,
+              "D": 0.4246196310548323,
+              "E": 0.11106117033290924
+            }
+          },
+          "tdoa": {
+            "rows": 6100,
+            "dropped_quality_columns": [
+              "e",
+              "eps_sync"
+            ],
+            "added_columns": [
+              "phi_e",
+              "phi_eps_sync",
+              "rt_m",
+              "st_m",
+              "confidence"
+            ],
+            "confidence_mean": 0.6843786916310416,
+            "confidence_std": 0.20492269959538936,
+            "scenario_confidence_mean": {
+              "A": 0.8259522230193764,
+              "B": 0.6768935116756813,
+              "C": 0.32793315010663315,
+              "D": 0.5752306435251122,
+              "E": 0.14803486167105345
+            }
+          },
+          "acoustic": {
+            "rows": 6100,
+            "dropped_quality_columns": [
+              "SNRa",
+              "n"
+            ],
+            "added_columns": [
+              "phi_SNRa",
+              "phi_n",
+              "rt_m",
+              "st_m",
+              "confidence"
+            ],
+            "confidence_mean": 0.38575815094351396,
+            "confidence_std": 0.2992970325195883,
+            "scenario_confidence_mean": {
+              "A": 0.571659567492802,
+              "B": 0.3287930746806737,
+              "C": 0.05202930628688488,
+              "D": 0.20729417053993032,
+              "E": 0.016154454490240486
+            }
+          }
+        }
+      }
+    }
+  ]
+}
