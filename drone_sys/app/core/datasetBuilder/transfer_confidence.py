@@ -5,6 +5,7 @@ import argparse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import json
 import os
+import random
 import shutil
 
 import numpy as np
@@ -407,7 +408,7 @@ def process_dataset_unit(dataset_dir, output_dir, cfg, batch_prefix, worker_num=
     return summary
 
 
-def process_dataset_root(root_in_dir, root_out_dir, cfg, batch_prefix, worker_num=8):
+def process_dataset_root(root_in_dir, root_out_dir, cfg, batch_prefix, worker_num=8, shuffle_seed=None):
     """
     Merge all dataset units under root_in_dir into one large batched dataset.
     Output layout:
@@ -424,6 +425,15 @@ def process_dataset_root(root_in_dir, root_out_dir, cfg, batch_prefix, worker_nu
             "source_unit_count": 0,
             "batches": [],
         }
+
+    # Shuffle source units before assigning output batch labels, so different scenarios
+    # are mixed across the merged dataset instead of staying grouped by source folder order.
+    if shuffle_seed is None:
+        random.shuffle(source_units)
+        print(f"[INFO] shuffled merged source units: {len(source_units)} (seed=random)")
+    else:
+        random.Random(int(shuffle_seed)).shuffle(source_units)
+        print(f"[INFO] shuffled merged source units: {len(source_units)} (seed={int(shuffle_seed)})")
 
     tasks = []
     total = len(source_units)
@@ -468,6 +478,8 @@ def process_dataset_root(root_in_dir, root_out_dir, cfg, batch_prefix, worker_nu
         "source_unit_count": len(source_units),
         "batch_count": len(merged_batches),
         "worker_num": max(1, int(worker_num)),
+        "merge_shuffle": True,
+        "shuffle_seed": None if shuffle_seed is None else int(shuffle_seed),
         "batches": merged_batches,
     }
     with open(os.path.join(root_out_dir, "confidence_summary.merged.json"), "w", encoding="utf-8") as f:
@@ -477,11 +489,12 @@ def process_dataset_root(root_in_dir, root_out_dir, cfg, batch_prefix, worker_nu
 
 def parse_args():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dataset-dir", type=str, default="./dataset/train-datasets")
-    ap.add_argument("--output-dir", type=str, default="./dataset-processed/train-datasets")
+    ap.add_argument("--dataset-dir", type=str, default="./dataset/train-datasets-finetuning/")
+    ap.add_argument("--output-dir", type=str, default="./dataset-processed/train-datasets-finetuning")
     ap.add_argument("--batch-prefix", type=str, default="batch")
     ap.add_argument("--root-mode", action="store_true", help="force merge mode under dataset-dir")
     ap.add_argument("--worker-num", type=int, default=16)
+    ap.add_argument("--shuffle-seed", type=int, default=2026, help="seed for root-mode source-unit shuffle")
     ap.add_argument("--config-json", type=str, default=None)
     ap.add_argument("--mode", choices=["linear", "sigmoid"], default=None)
     ap.add_argument("--alpha", type=float, default=None)
@@ -546,6 +559,7 @@ if __name__ == "__main__":
             cfg=cfg,
             batch_prefix=args.batch_prefix,
             worker_num=max(1, int(args.worker_num)),
+            shuffle_seed=args.shuffle_seed,
         )
         print(
             "[DONE] merged confidence outputs: "

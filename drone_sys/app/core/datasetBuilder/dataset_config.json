@@ -17,6 +17,25 @@
   },
   "profiles": [
     {
+      "name": "scenario_multi_source_5000x120",
+      "override": {
+        "seed": 20260310,
+        "simulation": {
+          "uav_count": 5000,
+          "duration_s": 120.0
+        },
+        "missing_control": {
+          "force_available_modalities": [
+            "gps",
+            "radar",
+            "fiveg",
+            "tdoa",
+            "acoustic"
+          ]
+        }
+      }
+    },
+    {
       "name": "scenario_missing_gps_5000x120",
       "override": {
         "seed": 20260311,

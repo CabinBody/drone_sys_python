@@ -13,7 +13,7 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 # ============================================================
 # 1. 加载模型 + 归一化
 # ============================================================
-MODEL_PATH = "graph_fusion_model.pt"
+MODEL_PATH = "./model_result/graph_fusion_model_mix.pt"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 ckpt = torch.load(MODEL_PATH, map_location=DEVICE)

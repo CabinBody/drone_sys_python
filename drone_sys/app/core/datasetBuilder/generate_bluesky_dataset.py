@@ -1024,6 +1024,16 @@ def run_profile_batch(batch_cfg_path):
 
         print(f"\n[PROFILE {i}/{len(profiles)}] {name}")
         print(f"  output_dir: {cfg['output_dir']}")
+        out_dir = str(cfg["output_dir"])
+        summary_path = os.path.join(out_dir, "dataset_summary.json")
+        has_batch_dirs = os.path.isdir(out_dir) and any(
+            os.path.isdir(os.path.join(out_dir, x)) and str(x).startswith("batch")
+            for x in os.listdir(out_dir)
+        )
+        has_flat_files = os.path.exists(os.path.join(out_dir, "truth.csv"))
+        if os.path.exists(summary_path) or has_batch_dirs or has_flat_files:
+            print(f"  [SKIP] dataset already exists for profile '{name}': {out_dir}")
+            continue
         run(cfg)
 
 

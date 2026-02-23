@@ -15,10 +15,10 @@ from torch.utils.data import Dataset
 # ==============================================================
 # CONFIG
 # ==============================================================
-DATA_ROOT = r"../datasetBuilder/dataset-processed/scenario_multi_source_5000x120/"
+DATA_ROOT = r"../datasetBuilder/dataset-processed/train-datasets/"
 
 WINDOW_SIZE = 20
-STRIDE = 5
+STRIDE = 8
 
 MODALITIES = ["gps", "radar", "5g_a", "tdoa", "acoustic"]
 MODALITY_TO_ID = {m: i for i, m in enumerate(MODALITIES)}
@@ -46,7 +46,7 @@ IDX_CONF = 7
 IDX_TNORM = 8
 IDX_POS_VALID = 9
 
-NORM_STATS_PATH = "graph_norm_stats_processed_sparse_enu.pth"
+NORM_STATS_PATH = "./model_result/graph_norm_mix.pth"
 
 
 @dataclass

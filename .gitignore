@@ -28,3 +28,4 @@ logs/
 .cache
 **/dataset-processed/train-datasets/
 **/dataset/training-datasets/
+**/dataset/training-datasets-finetuning/

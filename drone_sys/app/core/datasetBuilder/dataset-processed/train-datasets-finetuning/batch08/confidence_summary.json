@@ -1,0 +1,133 @@
+{
+  "input_dir": "./dataset/training-datasets-finetuning/scenario_multi_source_5000x120\\batch09",
+  "output_dir": "./dataset-processed/train-datasets-finetuning\\batch08",
+  "label": "batch08",
+  "truth": {
+    "copied": true,
+    "source": "./dataset/training-datasets-finetuning/scenario_multi_source_5000x120\\batch09\\truth.csv",
+    "output": "./dataset-processed/train-datasets-finetuning\\batch08\\truth.csv"
+  },
+  "modalities": {
+    "gps": {
+      "rows": 120200,
+      "dropped_quality_columns": [
+        "Nsat",
+        "DOP",
+        "RTK"
+      ],
+      "added_columns": [
+        "phi_Nsat",
+        "phi_DOP",
+        "phi_RTK",
+        "rt_m",
+        "st_m",
+        "confidence"
+      ],
+      "confidence_mean": 0.6545896465100737,
+      "confidence_std": 0.21757738170526478,
+      "scenario_confidence_mean": {
+        "A": 0.806877123089913,
+        "B": 0.6252968635306471,
+        "C": 0.29092399558302384,
+        "D": 0.5854741952623825,
+        "E": 0.1839055452231064
+      }
+    },
+    "radar": {
+      "rows": 48200,
+      "dropped_quality_columns": [
+        "E",
+        "Ptrk"
+      ],
+      "added_columns": [
+        "phi_E",
+        "phi_Ptrk",
+        "rt_m",
+        "st_m",
+        "confidence"
+      ],
+      "confidence_mean": 0.5303524493281903,
+      "confidence_std": 0.2443383195743552,
+      "scenario_confidence_mean": {
+        "A": 0.7130933754867939,
+        "B": 0.4841485675954896,
+        "C": 0.09535747626693947,
+        "D": 0.3980817794000046,
+        "E": 0.060113303336914455
+      }
+    },
+    "fiveg": {
+      "rows": 240200,
+      "dropped_quality_columns": [
+        "SNR",
+        "RSSI",
+        "d",
+        "ploss"
+      ],
+      "added_columns": [
+        "phi_SNR",
+        "phi_RSSI",
+        "phi_d",
+        "phi_ploss",
+        "rt_m",
+        "st_m",
+        "confidence"
+      ],
+      "confidence_mean": 0.5612408655724858,
+      "confidence_std": 0.1969326901656817,
+      "scenario_confidence_mean": {
+        "A": 0.7062437741159824,
+        "B": 0.5401657782516041,
+        "C": 0.20285330719214795,
+        "D": 0.4195392675712009,
+        "E": 0.10926177296754205
+      }
+    },
+    "tdoa": {
+      "rows": 24200,
+      "dropped_quality_columns": [
+        "e",
+        "eps_sync"
+      ],
+      "added_columns": [
+        "phi_e",
+        "phi_eps_sync",
+        "rt_m",
+        "st_m",
+        "confidence"
+      ],
+      "confidence_mean": 0.6851641872645028,
+      "confidence_std": 0.21289495101081765,
+      "scenario_confidence_mean": {
+        "A": 0.826299161235833,
+        "B": 0.6842378847419568,
+        "C": 0.33061105815832814,
+        "D": 0.5827288925772787,
+        "E": 0.15499115248693024
+      }
+    },
+    "acoustic": {
+      "rows": 24200,
+      "dropped_quality_columns": [
+        "SNRa",
+        "n"
+      ],
+      "added_columns": [
+        "phi_SNRa",
+        "phi_n",
+        "rt_m",
+        "st_m",
+        "confidence"
+      ],
+      "confidence_mean": 0.509541511220158,
+      "confidence_std": 0.208338562634214,
+      "scenario_confidence_mean": {
+        "A": 0.6675809240620345,
+        "B": 0.45002381969783734,
+        "C": 0.15705501937839464,
+        "D": 0.3391789076349945,
+        "E": 0.09576913567612773
+      }
+    }
+  }
+}

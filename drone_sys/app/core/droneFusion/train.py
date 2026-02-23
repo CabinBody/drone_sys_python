@@ -1,5 +1,6 @@
 import os
 import glob
+import random
 from dataclasses import asdict, dataclass, field
 
 import torch
@@ -7,7 +8,6 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from dataset import (
-    DATA_ROOT,
     MODALITIES,
     MultiSourceGraphDataset,
     sparse_collate_fn,
@@ -15,27 +15,28 @@ from dataset import (
 from model import GraphFusionModel
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 @dataclass
 class DataConfig:
-    data_dir: str = r"../datasetBuilder/dataset-processed/train-datasets"
+    data_dir: str = os.path.normpath(os.path.join(BASE_DIR, "../datasetBuilder/dataset-processed/train-datasets-finetuning/"))
     window_size: int = 20
     stride: int = 8
     truth_dt_s: float = 1.0
     align_tolerance_s: float = 0.55
     modalities: list = field(default_factory=lambda: list(MODALITIES))
-    norm_stats_path: str = "graph_norm_stats_processed_sparse_enu.pth"
-    rebuild_norm_stats: bool = True
+    norm_stats_path: str = os.path.normpath(os.path.join(BASE_DIR, "model_result/graph_norm_mix.pth"))
+    rebuild_norm_stats: bool = False
     max_batches: int = 0  # 0 means no limit
     batch_prefix: str = "batch"
     dataset_verbose: bool = True
     dataset_log_every_uav: int = 20
-    dataset_build_workers: int = 15
+    dataset_build_workers: int = 8
     dataset_build_use_multiprocessing: bool = True
     dataset_use_sample_cache: bool = True
     dataset_rebuild_sample_cache: bool = False
-    dataset_sample_cache_dir: str = ".cache/graph_samples"
+    dataset_sample_cache_dir: str = ".cache/graph_samples_finetune/"
 
 
 @dataclass
@@ -50,22 +51,31 @@ class ModelConfig:
 
 @dataclass
 class TrainConfig:
-    batch_size: int = 8
-    epochs: int = 15
-    lr: float = 3e-4
+    batch_size: int = 16
+    epochs: int = 2
+    lr: float = 5e-5
     weight_decay: float = 5e-5
     grad_clip: float = 1.0
-    num_workers: int = 16
-    loader_persistent_workers: bool = True
+    num_workers: int = 2
+    loader_persistent_workers: bool = False
     loader_prefetch_factor: int = 2
     loader_multiprocessing_context: str = "spawn"
     pin_memory: bool = True
-    log_every_step: bool = True
+    log_every_step: bool = False
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
-    model_path: str = "graph_fusion_model_processed.pt"
-    resume_model_path: str = ""
+    model_path: str = os.path.normpath(os.path.join(BASE_DIR, "model_result/graph_fusion_model_epoch_2.pt"))
+    resume_model_path: str = os.path.normpath(os.path.join(BASE_DIR, "model_result/graph_fusion_model_mix_weighted.pt"))
     resume_if_model_exists: bool = False
     resume_strict: bool = True
+    shuffle_units_each_epoch: bool = True
+    unit_shuffle_seed: int = 20260223
+    use_coverage_weighted_loss: bool = True
+    loss_weight_full_alpha: float = 1.5
+    loss_weight_missing_alpha: float = 0.8
+    loss_weight_power: float = 2.0
+    use_confidence_weight: bool = True
+    loss_weight_conf_alpha: float = 1
+    loss_weight_conf_power: float = 2.0
 
 
 DATA_CFG = DataConfig()
@@ -149,14 +159,90 @@ def train_one_epoch(
     epochs,
     log_every_step=True,
     grad_clip=1.0,
-    phase_tag=""
+    phase_tag="",
+    train_cfg=None,
+    num_modalities=None,
 ):
     model.train()
-    loss_fn = nn.MSELoss()
+    loss_fn = nn.MSELoss(reduction="none")
 
     total_loss = 0.0
     total_samples = 0
     num_steps = len(loader)
+
+    def _coverage_loss_weights(node_feat, node_t, node_m, node_mask, t_len, m_count, obs_json_batch):
+        if train_cfg is None or (not bool(getattr(train_cfg, "use_coverage_weighted_loss", False))):
+            bsz = node_feat.size(0)
+            ones = torch.ones((bsz,), dtype=node_feat.dtype, device=node_feat.device)
+            return ones, None, None, None
+
+        # node_feat[10] is obs_valid and is intentionally not standardized in dataset.py
+        obs_valid = node_feat[..., 10] > 0.5
+        valid = node_mask > 0.5
+        valid_obs = valid & obs_valid
+        t_idx = node_t.clamp(min=0, max=max(int(t_len) - 1, 0))
+
+        bsz = node_feat.size(0)
+        m_count = max(1, int(m_count or 1))
+        present = torch.zeros((bsz, int(t_len), m_count), dtype=torch.float32, device=node_feat.device)
+        for mid in range(m_count):
+            mask_m = valid_obs & (node_m == mid)
+            counts = torch.zeros((bsz, int(t_len)), dtype=torch.float32, device=node_feat.device)
+            counts.scatter_add_(1, t_idx, mask_m.to(torch.float32))
+            present[:, :, mid] = (counts > 0).to(torch.float32)
+
+        coverage_ratio = present.mean(dim=(1, 2))  # [B], 0~1
+        full_modal_ratio = (present.sum(dim=-1) == float(m_count)).to(torch.float32).mean(dim=1)  # [B], 0~1
+
+        p = max(float(getattr(train_cfg, "loss_weight_power", 2.0)), 1e-6)
+        full_alpha = float(getattr(train_cfg, "loss_weight_full_alpha", 0.0))
+        miss_alpha = float(getattr(train_cfg, "loss_weight_missing_alpha", 0.0))
+        weights = (
+            1.0
+            + full_alpha * torch.pow(full_modal_ratio.clamp(0.0, 1.0), p)
+            + miss_alpha * torch.pow((1.0 - coverage_ratio).clamp(0.0, 1.0), p)
+        )
+        conf_quality_ratio = None
+        if bool(getattr(train_cfg, "use_confidence_weight", False)):
+            conf_alpha = float(getattr(train_cfg, "loss_weight_conf_alpha", 0.0))
+            conf_power = max(float(getattr(train_cfg, "loss_weight_conf_power", 2.0)), 1e-6)
+            if conf_alpha > 0 and isinstance(obs_json_batch, list):
+                conf_quality_ratio = torch.zeros((bsz,), dtype=torch.float32, device=node_feat.device)
+                for bi, obs_seq in enumerate(obs_json_batch):
+                    if not isinstance(obs_seq, list) or len(obs_seq) == 0:
+                        continue
+                    conf_sum = 0.0
+                    conf_cnt = 0
+                    observed_slots = 0
+                    total_slots = 0
+                    for t_item in obs_seq:
+                        if not isinstance(t_item, dict):
+                            continue
+                        total_slots += int(m_count)
+                        for _, mod_item in t_item.items():
+                            if not isinstance(mod_item, dict):
+                                continue
+                            try:
+                                obs_ok = float(mod_item.get("obs_valid", 1.0)) > 0.5
+                            except Exception:
+                                obs_ok = True
+                            if not obs_ok:
+                                continue
+                            observed_slots += 1
+                            try:
+                                conf_v = float(mod_item.get("confidence", 0.0))
+                            except Exception:
+                                conf_v = 0.0
+                            conf_sum += max(0.0, min(1.0, conf_v))
+                            conf_cnt += 1
+                    if conf_cnt > 0:
+                        mean_conf = conf_sum / float(conf_cnt)
+                        slot_cov = (observed_slots / float(total_slots)) if total_slots > 0 else 0.0
+                        conf_quality_ratio[bi] = float(max(0.0, min(1.0, mean_conf * slot_cov)))
+                weights = weights + conf_alpha * torch.pow(conf_quality_ratio.clamp(0.0, 1.0), conf_power)
+        # Keep the effective learning rate stable after reweighting.
+        weights = weights / (weights.mean().detach() + 1e-6)
+        return weights.to(node_feat.dtype), coverage_ratio, full_modal_ratio, conf_quality_ratio
 
     for step, batch in enumerate(loader, start=1):
         node_feat = batch["node_feat"].to(device)
@@ -173,7 +259,18 @@ def train_one_epoch(
             node_mask=node_mask,
             window_size=y.shape[1],
         )
-        loss = loss_fn(pred, y)
+        per_elem_loss = loss_fn(pred, y)
+        per_sample_loss = per_elem_loss.mean(dim=(1, 2))
+        sample_weights, coverage_ratio, full_modal_ratio, conf_quality_ratio = _coverage_loss_weights(
+            node_feat=node_feat,
+            node_t=node_t,
+            node_m=node_m,
+            node_mask=node_mask,
+            t_len=int(y.shape[1]),
+            m_count=int(num_modalities or 1),
+            obs_json_batch=batch.get("obs_json"),
+        )
+        loss = (per_sample_loss * sample_weights).sum() / (sample_weights.sum() + 1e-6)
         loss.backward()
 
         if grad_clip is not None and grad_clip > 0:
@@ -186,11 +283,20 @@ def train_one_epoch(
         avg_loss = total_loss / max(total_samples, 1)
 
         if log_every_step:
+            extra = ""
+            if coverage_ratio is not None and full_modal_ratio is not None:
+                extra = (
+                    f" | cov={coverage_ratio.mean().item():.3f}"
+                    f" | full={full_modal_ratio.mean().item():.3f}"
+                    f" | w={sample_weights.mean().item():.3f}"
+                )
+                if conf_quality_ratio is not None:
+                    extra += f" | confq={conf_quality_ratio.mean().item():.3f}"
             print(
                 f"[Epoch {epoch:02d}/{epochs:02d}] "
                 f"{phase_tag} "
                 f"Step {step:04d}/{num_steps:04d} | "
-                f"loss={loss.item():.6f} | avg={avg_loss:.6f}"
+                f"loss={loss.item():.6f} | avg={avg_loss:.6f}{extra}"
             )
 
     return total_loss / max(total_samples, 1)
@@ -203,6 +309,17 @@ def list_data_units(data_dir: str, batch_prefix: str, max_batches: int):
     if max_batches is not None and max_batches > 0:
         return batch_dirs[:max_batches]
     return batch_dirs
+
+
+def get_epoch_units(units, epoch: int, train_cfg: TrainConfig):
+    epoch_units = list(units)
+    if len(epoch_units) <= 1:
+        return epoch_units
+    if not bool(getattr(train_cfg, "shuffle_units_each_epoch", False)):
+        return epoch_units
+    seed_base = int(getattr(train_cfg, "unit_shuffle_seed", 0))
+    random.Random(seed_base + int(epoch)).shuffle(epoch_units)
+    return epoch_units
 
 
 def build_loader_for_unit(unit_dir: str, cfg: DataConfig, train_cfg: TrainConfig, rebuild_norm_stats: bool):
@@ -265,11 +382,18 @@ def main():
         max_batches=DATA_CFG.max_batches,
     )
     print(f"[Data] training units: {len(units)}")
+    if len(units) == 0:
+        raise RuntimeError(f"no training units found under: {DATA_CFG.data_dir}")
+    epoch1_units = get_epoch_units(units, epoch=1, train_cfg=TRAIN_CFG)
+    if bool(getattr(TRAIN_CFG, "shuffle_units_each_epoch", False)):
+        print(
+            f"[Data] epoch01 unit shuffle enabled | seed={int(getattr(TRAIN_CFG, 'unit_shuffle_seed', 0)) + 1}"
+        )
 
     # Build first unit to initialize model input dim + norm stats
     first_rebuild = DATA_CFG.rebuild_norm_stats
     first_ds, first_loader = build_loader_for_unit(
-        unit_dir=units[0],
+        unit_dir=epoch1_units[0],
         cfg=DATA_CFG,
         train_cfg=TRAIN_CFG,
         rebuild_norm_stats=first_rebuild,
@@ -310,11 +434,16 @@ def main():
     print(f"[Train] start: epochs={TRAIN_CFG.epochs}, units/epoch={len(units)}")
 
     for epoch in range(1, TRAIN_CFG.epochs + 1):
+        epoch_units = get_epoch_units(units, epoch=epoch, train_cfg=TRAIN_CFG)
+        if bool(getattr(TRAIN_CFG, "shuffle_units_each_epoch", False)):
+            seed_used = int(getattr(TRAIN_CFG, "unit_shuffle_seed", 0)) + int(epoch)
+            head = ", ".join(os.path.basename(x) for x in epoch_units[:5])
+            print(f"[Epoch {epoch:02d}] shuffled units | seed={seed_used} | head=[{head}]")
         unit_losses = []
-        for ui, unit_dir in enumerate(units, start=1):
+        for ui, unit_dir in enumerate(epoch_units, start=1):
             rebuild = False
-            print(f"[Load] Epoch {epoch:02d} unit {ui:03d}/{len(units):03d}: {unit_dir}")
-            if epoch == 1 and ui == 1:
+            print(f"[Load] Epoch {epoch:02d} unit {ui:03d}/{len(epoch_units):03d}: {unit_dir}")
+            if epoch == 1 and ui == 1 and unit_dir == epoch1_units[0]:
                 ds, loader = first_ds, first_loader
                 print("[Load] reuse warmup loader for first unit")
             else:
@@ -336,13 +465,19 @@ def main():
                 epochs=TRAIN_CFG.epochs,
                 log_every_step=TRAIN_CFG.log_every_step,
                 grad_clip=TRAIN_CFG.grad_clip,
-                phase_tag=f"[unit {ui:03d}/{len(units):03d}]",
+                phase_tag=f"[unit {ui:03d}/{len(epoch_units):03d}]",
+                train_cfg=TRAIN_CFG,
+                num_modalities=len(DATA_CFG.modalities),
             )
             unit_losses.append(unit_loss)
             print(f"[Unit] Epoch {epoch:02d} unit {ui:03d} done | avg_loss={unit_loss:.6f}")
 
         epoch_loss = float(sum(unit_losses) / max(len(unit_losses), 1))
         print(f"[Epoch {epoch:02d}] done | avg_loss={epoch_loss:.6f}")
+
+    model_out_dir = os.path.dirname(os.path.abspath(TRAIN_CFG.model_path))
+    if model_out_dir:
+        os.makedirs(model_out_dir, exist_ok=True)
 
     torch.save(
         {

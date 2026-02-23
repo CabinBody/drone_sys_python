@@ -15,11 +15,11 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 # ==============================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_ROOT = r"../datasetBuilder/dataset-processed/test-datasets/scenario_multi_source_100x60/"
-MODEL_PATH = os.path.join(BASE_DIR, "graph_fusion_model_processed.pt")
-NORM_PATH = os.path.join(BASE_DIR, "graph_norm_stats_processed_sparse_enu.pth")
+MODEL_PATH = os.path.join(BASE_DIR, "./model_result/graph_fusion_model_epoch_1.pt")
+NORM_PATH = os.path.join(BASE_DIR, "./model_result/graph_norm_mix.pth")
 DEVICE = inf.DEVICE
 
-OUTPUT_DIR = os.path.join(BASE_DIR, "eval_results")
+OUTPUT_DIR = os.path.join(BASE_DIR, "eval_results_epoch_1_multi")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 SAVE_FIG = True
