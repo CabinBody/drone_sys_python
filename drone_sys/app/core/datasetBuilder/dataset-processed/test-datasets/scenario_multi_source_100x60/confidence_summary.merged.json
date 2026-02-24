@@ -1,35 +1,45 @@
 {
-  "input_dir": "./dataset/scenario_multi_source_100x60",
-  "output_dir": "./dataset-processed/scenario_multi_source_100x60",
+  "input_root": "./dataset/test-datasets/scenario_multi_source_100x60/",
+  "output_root": "./dataset-processed/test-datasets/scenario_multi_source_100x60/",
+  "layout": "merged_batched",
   "confidence_config": {
     "mode": "linear",
     "alpha": 0.65,
     "sigmoid_k": 8.0,
     "sigmoid_b": 0.5
   },
-  "layout": "batched",
+  "dataset_count": 1,
+  "source_unit_count": 1,
   "batch_count": 1,
+  "worker_num": 16,
+  "merge_shuffle": true,
+  "shuffle_seed": 2026,
   "batches": [
     {
       "batch": "batch01",
-      "path": "batch01",
+      "source_dataset": "batch01",
+      "source_unit": "flat",
+      "input_dir": "./dataset/test-datasets/scenario_multi_source_100x60/batch01",
+      "output_dir": "./dataset-processed/test-datasets/scenario_multi_source_100x60/batch01",
       "summary": {
-        "input_dir": "./dataset/scenario_multi_source_100x60\\batch01",
-        "output_dir": "./dataset-processed/scenario_multi_source_100x60\\batch01",
+        "input_dir": "./dataset/test-datasets/scenario_multi_source_100x60/batch01",
+        "output_dir": "./dataset-processed/test-datasets/scenario_multi_source_100x60/batch01",
         "label": "batch01",
         "truth": {
           "copied": true,
-          "source": "./dataset/scenario_multi_source_100x60\\batch01\\truth.csv",
-          "output": "./dataset-processed/scenario_multi_source_100x60\\batch01\\truth.csv"
+          "source": "./dataset/test-datasets/scenario_multi_source_100x60/batch01\\truth.csv",
+          "output": "./dataset-processed/test-datasets/scenario_multi_source_100x60/batch01\\truth.csv"
         },
         "modalities": {
           "gps": {
             "rows": 30100,
-            "dropped_quality_columns": [
+            "quality_columns": [
               "Nsat",
               "DOP",
               "RTK"
             ],
+            "quality_columns_preserved": true,
+            "dropped_quality_columns": [],
             "added_columns": [
               "phi_Nsat",
               "phi_DOP",
@@ -50,10 +60,12 @@
           },
           "radar": {
             "rows": 12100,
-            "dropped_quality_columns": [
+            "quality_columns": [
               "E",
               "Ptrk"
             ],
+            "quality_columns_preserved": true,
+            "dropped_quality_columns": [],
             "added_columns": [
               "phi_E",
               "phi_Ptrk",
@@ -73,12 +85,14 @@
           },
           "fiveg": {
             "rows": 60100,
-            "dropped_quality_columns": [
+            "quality_columns": [
               "SNR",
               "RSSI",
               "d",
               "ploss"
             ],
+            "quality_columns_preserved": true,
+            "dropped_quality_columns": [],
             "added_columns": [
               "phi_SNR",
               "phi_RSSI",
@@ -100,10 +114,12 @@
           },
           "tdoa": {
             "rows": 6100,
-            "dropped_quality_columns": [
+            "quality_columns": [
               "e",
               "eps_sync"
             ],
+            "quality_columns_preserved": true,
+            "dropped_quality_columns": [],
             "added_columns": [
               "phi_e",
               "phi_eps_sync",
@@ -123,10 +139,12 @@
           },
           "acoustic": {
             "rows": 6100,
-            "dropped_quality_columns": [
+            "quality_columns": [
               "SNRa",
               "n"
             ],
+            "quality_columns_preserved": true,
+            "dropped_quality_columns": [],
             "added_columns": [
               "phi_SNRa",
               "phi_n",

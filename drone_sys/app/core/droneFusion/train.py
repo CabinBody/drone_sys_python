@@ -26,7 +26,7 @@ class DataConfig:
     truth_dt_s: float = 1.0
     align_tolerance_s: float = 0.55
     modalities: list = field(default_factory=lambda: list(MODALITIES))
-    norm_stats_path: str = os.path.normpath(os.path.join(BASE_DIR, "model_result/graph_norm_mix.pth"))
+    norm_stats_path: str = os.path.normpath(os.path.join(BASE_DIR, "model_result/graph_norm_v2.pth"))
     rebuild_norm_stats: bool = False
     max_batches: int = 0  # 0 means no limit
     batch_prefix: str = "batch"
@@ -36,7 +36,7 @@ class DataConfig:
     dataset_build_use_multiprocessing: bool = True
     dataset_use_sample_cache: bool = True
     dataset_rebuild_sample_cache: bool = False
-    dataset_sample_cache_dir: str = ".cache/graph_samples_finetune/"
+    dataset_sample_cache_dir: str = ".cache/graph_samples_v2.6/"
 
 
 @dataclass
@@ -52,8 +52,8 @@ class ModelConfig:
 @dataclass
 class TrainConfig:
     batch_size: int = 16
-    epochs: int = 2
-    lr: float = 5e-5
+    epochs: int = 1
+    lr: float = 4e-5
     weight_decay: float = 5e-5
     grad_clip: float = 1.0
     num_workers: int = 2
@@ -63,19 +63,25 @@ class TrainConfig:
     pin_memory: bool = True
     log_every_step: bool = False
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
-    model_path: str = os.path.normpath(os.path.join(BASE_DIR, "model_result/graph_fusion_model_epoch_2.pt"))
-    resume_model_path: str = os.path.normpath(os.path.join(BASE_DIR, "model_result/graph_fusion_model_mix_weighted.pt"))
+    model_path: str = os.path.normpath(os.path.join(BASE_DIR, "model_result/graph_fusion_model_v2.6.pt"))
+    resume_model_path: str = os.path.normpath(os.path.join(BASE_DIR, "model_result/graph_fusion_model_v2.5.pt"))
     resume_if_model_exists: bool = False
-    resume_strict: bool = True
+    resume_strict: bool = False
     shuffle_units_each_epoch: bool = True
     unit_shuffle_seed: int = 20260223
     use_coverage_weighted_loss: bool = True
-    loss_weight_full_alpha: float = 1.5
-    loss_weight_missing_alpha: float = 0.8
+    loss_weight_full_alpha: float = 1.2
+    loss_weight_missing_alpha: float = 0.4
     loss_weight_power: float = 2.0
+    loss_weight_transition_alpha: float = 0.6
     use_confidence_weight: bool = True
-    loss_weight_conf_alpha: float = 1
+    loss_weight_conf_alpha: float = 1.2
     loss_weight_conf_power: float = 2.0
+    loss_main: str = "huber"  # huber | mse
+    huber_beta: float = 1.0
+    loss_vel_alpha: float = 0.15
+    loss_acc_alpha: float = 0.08
+    loss_fde_alpha: float = 0.30
 
 
 DATA_CFG = DataConfig()
@@ -164,49 +170,82 @@ def train_one_epoch(
     num_modalities=None,
 ):
     model.train()
-    loss_fn = nn.MSELoss(reduction="none")
+    loss_main_mode = str(getattr(train_cfg, "loss_main", "mse")).strip().lower() if train_cfg is not None else "mse"
+    if loss_main_mode == "huber":
+        beta = float(getattr(train_cfg, "huber_beta", 1.0)) if train_cfg is not None else 1.0
+        try:
+            loss_fn = nn.SmoothL1Loss(beta=max(beta, 1e-6), reduction="none")
+        except TypeError:
+            loss_fn = nn.SmoothL1Loss(reduction="none")
+    else:
+        loss_fn = nn.MSELoss(reduction="none")
 
     total_loss = 0.0
     total_samples = 0
     num_steps = len(loader)
 
-    def _coverage_loss_weights(node_feat, node_t, node_m, node_mask, t_len, m_count, obs_json_batch):
+    def _coverage_loss_weights(node_feat, node_t, node_m, node_mask, t_len, m_count, obs_json_batch, sample_meta_batch):
         if train_cfg is None or (not bool(getattr(train_cfg, "use_coverage_weighted_loss", False))):
             bsz = node_feat.size(0)
             ones = torch.ones((bsz,), dtype=node_feat.dtype, device=node_feat.device)
-            return ones, None, None, None
-
-        # node_feat[10] is obs_valid and is intentionally not standardized in dataset.py
-        obs_valid = node_feat[..., 10] > 0.5
-        valid = node_mask > 0.5
-        valid_obs = valid & obs_valid
-        t_idx = node_t.clamp(min=0, max=max(int(t_len) - 1, 0))
+            return ones, None, None, None, None
 
         bsz = node_feat.size(0)
         m_count = max(1, int(m_count or 1))
-        present = torch.zeros((bsz, int(t_len), m_count), dtype=torch.float32, device=node_feat.device)
-        for mid in range(m_count):
-            mask_m = valid_obs & (node_m == mid)
-            counts = torch.zeros((bsz, int(t_len)), dtype=torch.float32, device=node_feat.device)
-            counts.scatter_add_(1, t_idx, mask_m.to(torch.float32))
-            present[:, :, mid] = (counts > 0).to(torch.float32)
+        coverage_ratio = None
+        full_modal_ratio = None
+        conf_quality_ratio = None
+        transition_ratio = None
 
-        coverage_ratio = present.mean(dim=(1, 2))  # [B], 0~1
-        full_modal_ratio = (present.sum(dim=-1) == float(m_count)).to(torch.float32).mean(dim=1)  # [B], 0~1
+        if isinstance(sample_meta_batch, dict) and len(sample_meta_batch) > 0:
+            def _meta_1d(name):
+                v = sample_meta_batch.get(name)
+                if v is None:
+                    return None
+                if torch.is_tensor(v):
+                    return v.to(device).reshape(-1).to(torch.float32)
+                return None
+
+            coverage_ratio = _meta_1d("coverage_ratio")
+            full_modal_ratio = _meta_1d("full_modal_ratio")
+            conf_quality_ratio = _meta_1d("conf_quality_ratio")
+            transition_ratio = _meta_1d("transition_ratio")
+
+        if coverage_ratio is None or full_modal_ratio is None:
+            # Fallback path when sample_meta is absent.
+            obs_valid = node_feat[..., 10] > 0.5
+            valid = node_mask > 0.5
+            valid_obs = valid & obs_valid
+            t_idx = node_t.clamp(min=0, max=max(int(t_len) - 1, 0))
+            present = torch.zeros((bsz, int(t_len), m_count), dtype=torch.float32, device=node_feat.device)
+            for mid in range(m_count):
+                mask_m = valid_obs & (node_m == mid)
+                counts = torch.zeros((bsz, int(t_len)), dtype=torch.float32, device=node_feat.device)
+                counts.scatter_add_(1, t_idx, mask_m.to(torch.float32))
+                present[:, :, mid] = (counts > 0).to(torch.float32)
+            coverage_ratio = present.mean(dim=(1, 2))
+            full_modal_ratio = (present.sum(dim=-1) == float(m_count)).to(torch.float32).mean(dim=1)
+            if transition_ratio is None and present.size(1) > 1:
+                transition_ratio = (present[:, 1:, :] - present[:, :-1, :]).abs().mean(dim=(1, 2))
+            elif transition_ratio is None:
+                transition_ratio = torch.zeros((bsz,), dtype=torch.float32, device=node_feat.device)
 
         p = max(float(getattr(train_cfg, "loss_weight_power", 2.0)), 1e-6)
         full_alpha = float(getattr(train_cfg, "loss_weight_full_alpha", 0.0))
         miss_alpha = float(getattr(train_cfg, "loss_weight_missing_alpha", 0.0))
+        trans_alpha = float(getattr(train_cfg, "loss_weight_transition_alpha", 0.0))
         weights = (
             1.0
             + full_alpha * torch.pow(full_modal_ratio.clamp(0.0, 1.0), p)
             + miss_alpha * torch.pow((1.0 - coverage_ratio).clamp(0.0, 1.0), p)
         )
-        conf_quality_ratio = None
+        if transition_ratio is not None and trans_alpha > 0:
+            weights = weights + trans_alpha * torch.pow(transition_ratio.clamp(0.0, 1.0), p)
+
         if bool(getattr(train_cfg, "use_confidence_weight", False)):
             conf_alpha = float(getattr(train_cfg, "loss_weight_conf_alpha", 0.0))
             conf_power = max(float(getattr(train_cfg, "loss_weight_conf_power", 2.0)), 1e-6)
-            if conf_alpha > 0 and isinstance(obs_json_batch, list):
+            if conf_quality_ratio is None and conf_alpha > 0 and isinstance(obs_json_batch, list):
                 conf_quality_ratio = torch.zeros((bsz,), dtype=torch.float32, device=node_feat.device)
                 for bi, obs_seq in enumerate(obs_json_batch):
                     if not isinstance(obs_seq, list) or len(obs_seq) == 0:
@@ -239,10 +278,11 @@ def train_one_epoch(
                         mean_conf = conf_sum / float(conf_cnt)
                         slot_cov = (observed_slots / float(total_slots)) if total_slots > 0 else 0.0
                         conf_quality_ratio[bi] = float(max(0.0, min(1.0, mean_conf * slot_cov)))
+            if conf_alpha > 0 and conf_quality_ratio is not None:
                 weights = weights + conf_alpha * torch.pow(conf_quality_ratio.clamp(0.0, 1.0), conf_power)
         # Keep the effective learning rate stable after reweighting.
         weights = weights / (weights.mean().detach() + 1e-6)
-        return weights.to(node_feat.dtype), coverage_ratio, full_modal_ratio, conf_quality_ratio
+        return weights.to(node_feat.dtype), coverage_ratio, full_modal_ratio, conf_quality_ratio, transition_ratio
 
     for step, batch in enumerate(loader, start=1):
         node_feat = batch["node_feat"].to(device)
@@ -260,8 +300,8 @@ def train_one_epoch(
             window_size=y.shape[1],
         )
         per_elem_loss = loss_fn(pred, y)
-        per_sample_loss = per_elem_loss.mean(dim=(1, 2))
-        sample_weights, coverage_ratio, full_modal_ratio, conf_quality_ratio = _coverage_loss_weights(
+        per_sample_main = per_elem_loss.mean(dim=(1, 2))
+        sample_weights, coverage_ratio, full_modal_ratio, conf_quality_ratio, transition_ratio = _coverage_loss_weights(
             node_feat=node_feat,
             node_t=node_t,
             node_m=node_m,
@@ -269,7 +309,30 @@ def train_one_epoch(
             t_len=int(y.shape[1]),
             m_count=int(num_modalities or 1),
             obs_json_batch=batch.get("obs_json"),
+            sample_meta_batch=batch.get("sample_meta"),
         )
+
+        # Trajectory-shape auxiliary losses improve transition robustness and tail stability.
+        per_sample_loss = per_sample_main
+        vel_alpha = float(getattr(train_cfg, "loss_vel_alpha", 0.0)) if train_cfg is not None else 0.0
+        if vel_alpha > 0 and pred.shape[1] > 1:
+            vel_pred = pred[:, 1:, :] - pred[:, :-1, :]
+            vel_gt = y[:, 1:, :] - y[:, :-1, :]
+            per_sample_vel = loss_fn(vel_pred, vel_gt).mean(dim=(1, 2))
+            per_sample_loss = per_sample_loss + vel_alpha * per_sample_vel
+
+        acc_alpha = float(getattr(train_cfg, "loss_acc_alpha", 0.0)) if train_cfg is not None else 0.0
+        if acc_alpha > 0 and pred.shape[1] > 2:
+            acc_pred = pred[:, 2:, :] - 2.0 * pred[:, 1:-1, :] + pred[:, :-2, :]
+            acc_gt = y[:, 2:, :] - 2.0 * y[:, 1:-1, :] + y[:, :-2, :]
+            per_sample_acc = loss_fn(acc_pred, acc_gt).mean(dim=(1, 2))
+            per_sample_loss = per_sample_loss + acc_alpha * per_sample_acc
+
+        fde_alpha = float(getattr(train_cfg, "loss_fde_alpha", 0.0)) if train_cfg is not None else 0.0
+        if fde_alpha > 0 and pred.shape[1] > 0:
+            per_sample_fde = loss_fn(pred[:, -1:, :], y[:, -1:, :]).mean(dim=(1, 2))
+            per_sample_loss = per_sample_loss + fde_alpha * per_sample_fde
+
         loss = (per_sample_loss * sample_weights).sum() / (sample_weights.sum() + 1e-6)
         loss.backward()
 
@@ -292,6 +355,8 @@ def train_one_epoch(
                 )
                 if conf_quality_ratio is not None:
                     extra += f" | confq={conf_quality_ratio.mean().item():.3f}"
+                if transition_ratio is not None:
+                    extra += f" | trans={transition_ratio.mean().item():.3f}"
             print(
                 f"[Epoch {epoch:02d}/{epochs:02d}] "
                 f"{phase_tag} "

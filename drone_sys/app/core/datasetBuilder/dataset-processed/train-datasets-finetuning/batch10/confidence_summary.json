@@ -10,11 +10,13 @@
   "modalities": {
     "gps": {
       "rows": 120200,
-      "dropped_quality_columns": [
+      "quality_columns": [
         "Nsat",
         "DOP",
         "RTK"
       ],
+      "quality_columns_preserved": true,
+      "dropped_quality_columns": [],
       "added_columns": [
         "phi_Nsat",
         "phi_DOP",
@@ -23,8 +25,8 @@
         "st_m",
         "confidence"
       ],
-      "confidence_mean": 0.6568093279867279,
-      "confidence_std": 0.2184121257334155,
+      "confidence_mean": 0.6568093279867278,
+      "confidence_std": 0.21841212573341576,
       "scenario_confidence_mean": {
         "A": 0.8077396476115858,
         "B": 0.6281293694660369,
@@ -35,10 +37,12 @@
     },
     "radar": {
       "rows": 48200,
-      "dropped_quality_columns": [
+      "quality_columns": [
         "E",
         "Ptrk"
       ],
+      "quality_columns_preserved": true,
+      "dropped_quality_columns": [],
       "added_columns": [
         "phi_E",
         "phi_Ptrk",
@@ -47,7 +51,7 @@
         "confidence"
       ],
       "confidence_mean": 0.5429306159882058,
-      "confidence_std": 0.23665218793360743,
+      "confidence_std": 0.2366521879336074,
       "scenario_confidence_mean": {
         "A": 0.7133036122802545,
         "B": 0.4891676717476458,
@@ -58,12 +62,14 @@
     },
     "fiveg": {
       "rows": 240200,
-      "dropped_quality_columns": [
+      "quality_columns": [
         "SNR",
         "RSSI",
         "d",
         "ploss"
       ],
+      "quality_columns_preserved": true,
+      "dropped_quality_columns": [],
       "added_columns": [
         "phi_SNR",
         "phi_RSSI",
@@ -73,8 +79,8 @@
         "st_m",
         "confidence"
       ],
-      "confidence_mean": 0.5583338391441551,
-      "confidence_std": 0.20196713962321905,
+      "confidence_mean": 0.5583338391441552,
+      "confidence_std": 0.20196713962321933,
       "scenario_confidence_mean": {
         "A": 0.7100147937399677,
         "B": 0.5412843901052593,
@@ -85,10 +91,12 @@
     },
     "tdoa": {
       "rows": 24200,
-      "dropped_quality_columns": [
+      "quality_columns": [
         "e",
         "eps_sync"
       ],
+      "quality_columns_preserved": true,
+      "dropped_quality_columns": [],
       "added_columns": [
         "phi_e",
         "phi_eps_sync",
@@ -97,7 +105,7 @@
         "confidence"
       ],
       "confidence_mean": 0.681794990453147,
-      "confidence_std": 0.21481612728302904,
+      "confidence_std": 0.21481612728302896,
       "scenario_confidence_mean": {
         "A": 0.8265151038515046,
         "B": 0.6852746066105397,
@@ -108,10 +116,12 @@
     },
     "acoustic": {
       "rows": 24200,
-      "dropped_quality_columns": [
+      "quality_columns": [
         "SNRa",
         "n"
       ],
+      "quality_columns_preserved": true,
+      "dropped_quality_columns": [],
       "added_columns": [
         "phi_SNRa",
         "phi_n",

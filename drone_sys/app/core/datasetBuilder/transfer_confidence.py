@@ -44,6 +44,11 @@ def default_cfg():
             "sigmoid_k": 8.0,
             "sigmoid_b": 0.5,
         },
+        "io": {
+            # Preserve original modality quality columns so downstream models can
+            # use both engineered confidence and raw quality signals.
+            "preserve_quality_columns": True,
+        },
         "modalities": {
             "gps": {
                 "alpha": 0.70,
@@ -194,7 +199,9 @@ def process_modality(modality, in_path, out_path, cfg):
     ]
     keep_base = [c for c in BASE_COLS if c in passthrough_cols]
     keep_extra = [c for c in passthrough_cols if c not in keep_base]
-    out_cols = keep_base + keep_extra + phi_cols + ["rt_m", "st_m", "confidence"]
+    keep_quality_cols = bool(cfg.get("io", {}).get("preserve_quality_columns", True))
+    quality_out_cols = list(quality_cols) if keep_quality_cols else []
+    out_cols = keep_base + keep_extra + quality_out_cols + phi_cols + ["rt_m", "st_m", "confidence"]
     out_df = df[out_cols].copy()
     out_df.to_csv(out_path, index=False)
 
@@ -205,7 +212,9 @@ def process_modality(modality, in_path, out_path, cfg):
 
     return {
         "rows": int(len(out_df)),
-        "dropped_quality_columns": quality_cols,
+        "quality_columns": quality_cols,
+        "quality_columns_preserved": bool(keep_quality_cols),
+        "dropped_quality_columns": [] if keep_quality_cols else quality_cols,
         "added_columns": phi_cols + ["rt_m", "st_m", "confidence"],
         "confidence_mean": float(out_df["confidence"].mean()),
         "confidence_std": float(out_df["confidence"].std(ddof=0)),
@@ -489,8 +498,8 @@ def process_dataset_root(root_in_dir, root_out_dir, cfg, batch_prefix, worker_nu
 
 def parse_args():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dataset-dir", type=str, default="./dataset/train-datasets-finetuning/")
-    ap.add_argument("--output-dir", type=str, default="./dataset-processed/train-datasets-finetuning")
+    ap.add_argument("--dataset-dir", type=str, default="./dataset/test-datasets/scenario_multi_source_100x60/")
+    ap.add_argument("--output-dir", type=str, default="./dataset-processed/test-datasets/scenario_multi_source_100x60/")
     ap.add_argument("--batch-prefix", type=str, default="batch")
     ap.add_argument("--root-mode", action="store_true", help="force merge mode under dataset-dir")
     ap.add_argument("--worker-num", type=int, default=16)

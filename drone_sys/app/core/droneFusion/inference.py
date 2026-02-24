@@ -11,6 +11,7 @@ from dataset import (
     MODALITY_TO_ID,
     NODE_FEAT_DIM,
     NORM_STATS_PATH,
+    _build_sample_meta_from_arrays,
     _build_node_feature,
     _nearest_truth_index,
     enu_to_llh,
@@ -196,7 +197,21 @@ def load_model_and_runtime(model_path: str, norm_path: str, device: str):
         num_modalities=num_modalities,
         knn_k=knn_k,
     ).to(device)
-    model.load_state_dict(state_dict, strict=True)
+    try:
+        model.load_state_dict(state_dict, strict=True)
+        load_info = {"strict": True, "missing_keys": 0, "unexpected_keys": 0}
+    except RuntimeError as ex_strict:
+        load_ret = model.load_state_dict(state_dict, strict=False)
+        load_info = {
+            "strict": False,
+            "missing_keys": len(getattr(load_ret, "missing_keys", [])),
+            "unexpected_keys": len(getattr(load_ret, "unexpected_keys", [])),
+            "warning": str(ex_strict),
+        }
+        print(
+            "[Runtime][WARN] strict checkpoint load failed; using strict=False "
+            f"(missing={load_info['missing_keys']} unexpected={load_info['unexpected_keys']})"
+        )
     model.eval()
 
     runtime = {
@@ -205,6 +220,7 @@ def load_model_and_runtime(model_path: str, norm_path: str, device: str):
         "stride": stride,
         "align_tolerance_s": align_tolerance_s,
         "modalities": modalities,
+        "load_info": load_info,
     }
     return model, x_mean, x_std, y_mean, y_std, runtime
 
@@ -229,7 +245,13 @@ def estimate_window_quality(node_feat: np.ndarray):
         return 1e-3
 
     n_nodes = float(node_feat.shape[0])
-    conf_mean = float(np.clip(np.nanmean(node_feat[:, 7]) if node_feat.shape[1] > 7 else 0.5, 0.0, 1.0))
+    if node_feat.shape[1] > 7:
+        conf_vals = np.asarray(node_feat[:, 7], dtype=float)
+        if np.nanmin(conf_vals) < 0.0 or np.nanmax(conf_vals) > 1.0:
+            conf_vals = 1.0 / (1.0 + np.exp(-conf_vals))
+        conf_mean = float(np.clip(np.nanmean(conf_vals), 0.0, 1.0))
+    else:
+        conf_mean = 0.5
     pos_valid_ratio = float(np.clip(np.nanmean(node_feat[:, 9]) if node_feat.shape[1] > 9 else 1.0, 0.0, 1.0))
     obs_valid_ratio = float(np.clip(np.nanmean(node_feat[:, 10]) if node_feat.shape[1] > 10 else 1.0, 0.0, 1.0))
 
@@ -541,11 +563,23 @@ def build_sparse_windows_new(
         if len(feats) == 0:
             continue
 
+        node_feat_arr = np.stack(feats).astype(np.float32)
+        node_t_arr = np.array(t_ids, dtype=np.int64)
+        node_m_arr = np.array(m_ids, dtype=np.int64)
+        sample_meta = _build_sample_meta_from_arrays(
+            node_feat=node_feat_arr,
+            node_t=node_t_arr,
+            node_m=node_m_arr,
+            window_size=window_size,
+            num_modalities=max(modality_width, len(modalities)),
+        )
+
         windows.append(
             {
-                "node_feat": np.stack(feats).astype(np.float32),
-                "node_t": np.array(t_ids, dtype=np.int64),
-                "node_m": np.array(m_ids, dtype=np.int64),
+                "node_feat": node_feat_arr,
+                "node_t": node_t_arr,
+                "node_m": node_m_arr,
+                "sample_meta": sample_meta,
             }
         )
         starts.append(s)
@@ -627,11 +661,22 @@ def build_sparse_windows_legacy(df_truth_u, mod_frames, lat0, lon0, alt0, modali
 
         if len(feats) == 0:
             continue
+        node_feat_arr = np.stack(feats).astype(np.float32)
+        node_t_arr = np.array(t_ids, dtype=np.int64)
+        node_m_arr = np.array(m_ids, dtype=np.int64)
+        sample_meta = _build_sample_meta_from_arrays(
+            node_feat=node_feat_arr,
+            node_t=node_t_arr,
+            node_m=node_m_arr,
+            window_size=window_size,
+            num_modalities=max((MODALITY_TO_ID[m] for m in modalities), default=-1) + 1,
+        )
         windows.append(
             {
-                "node_feat": np.stack(feats).astype(np.float32),
-                "node_t": np.array(t_ids, dtype=np.int64),
-                "node_m": np.array(m_ids, dtype=np.int64),
+                "node_feat": node_feat_arr,
+                "node_t": node_t_arr,
+                "node_m": node_m_arr,
+                "sample_meta": sample_meta,
             }
         )
         starts.append(s)

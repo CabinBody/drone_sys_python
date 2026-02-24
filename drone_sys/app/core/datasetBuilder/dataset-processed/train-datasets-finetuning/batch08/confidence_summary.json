@@ -10,11 +10,13 @@
   "modalities": {
     "gps": {
       "rows": 120200,
-      "dropped_quality_columns": [
+      "quality_columns": [
         "Nsat",
         "DOP",
         "RTK"
       ],
+      "quality_columns_preserved": true,
+      "dropped_quality_columns": [],
       "added_columns": [
         "phi_Nsat",
         "phi_DOP",
@@ -23,8 +25,8 @@
         "st_m",
         "confidence"
       ],
-      "confidence_mean": 0.6545896465100737,
-      "confidence_std": 0.21757738170526478,
+      "confidence_mean": 0.6545896465100738,
+      "confidence_std": 0.21757738170526494,
       "scenario_confidence_mean": {
         "A": 0.806877123089913,
         "B": 0.6252968635306471,
@@ -35,10 +37,12 @@
     },
     "radar": {
       "rows": 48200,
-      "dropped_quality_columns": [
+      "quality_columns": [
         "E",
         "Ptrk"
       ],
+      "quality_columns_preserved": true,
+      "dropped_quality_columns": [],
       "added_columns": [
         "phi_E",
         "phi_Ptrk",
@@ -47,7 +51,7 @@
         "confidence"
       ],
       "confidence_mean": 0.5303524493281903,
-      "confidence_std": 0.2443383195743552,
+      "confidence_std": 0.24433831957435387,
       "scenario_confidence_mean": {
         "A": 0.7130933754867939,
         "B": 0.4841485675954896,
@@ -58,12 +62,14 @@
     },
     "fiveg": {
       "rows": 240200,
-      "dropped_quality_columns": [
+      "quality_columns": [
         "SNR",
         "RSSI",
         "d",
         "ploss"
       ],
+      "quality_columns_preserved": true,
+      "dropped_quality_columns": [],
       "added_columns": [
         "phi_SNR",
         "phi_RSSI",
@@ -74,7 +80,7 @@
         "confidence"
       ],
       "confidence_mean": 0.5612408655724858,
-      "confidence_std": 0.1969326901656817,
+      "confidence_std": 0.19693269016568143,
       "scenario_confidence_mean": {
         "A": 0.7062437741159824,
         "B": 0.5401657782516041,
@@ -85,10 +91,12 @@
     },
     "tdoa": {
       "rows": 24200,
-      "dropped_quality_columns": [
+      "quality_columns": [
         "e",
         "eps_sync"
       ],
+      "quality_columns_preserved": true,
+      "dropped_quality_columns": [],
       "added_columns": [
         "phi_e",
         "phi_eps_sync",
@@ -97,7 +105,7 @@
         "confidence"
       ],
       "confidence_mean": 0.6851641872645028,
-      "confidence_std": 0.21289495101081765,
+      "confidence_std": 0.21289495101081768,
       "scenario_confidence_mean": {
         "A": 0.826299161235833,
         "B": 0.6842378847419568,
@@ -108,10 +116,12 @@
     },
     "acoustic": {
       "rows": 24200,
-      "dropped_quality_columns": [
+      "quality_columns": [
         "SNRa",
         "n"
       ],
+      "quality_columns_preserved": true,
+      "dropped_quality_columns": [],
       "added_columns": [
         "phi_SNRa",
         "phi_n",
@@ -120,7 +130,7 @@
         "confidence"
       ],
       "confidence_mean": 0.509541511220158,
-      "confidence_std": 0.208338562634214,
+      "confidence_std": 0.20833856263421396,
       "scenario_confidence_mean": {
         "A": 0.6675809240620345,
         "B": 0.45002381969783734,

@@ -14,6 +14,9 @@ from drone_sys.app.core.datasetBuilder import transfer_confidence as tc
 router = APIRouter(tags=["fusion"])
 
 _REQ_MODALITIES = ["gps", "radar", "fiveg", "tdoa", "acoustic"]
+_DRONE_FUSION_DIR = Path(__file__).resolve().parents[1] / "core" / "droneFusion"
+_MODEL_PATH = _DRONE_FUSION_DIR / "model_result" / "graph_fusion_model_v2.6.pt"
+_NORM_PATH = _DRONE_FUSION_DIR / "model_result" / "graph_norm_v2.pth"
 _QUALITY_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "gps": {"Nsat": 0.0, "DOP": 99.0, "RTK": "NONE"},
     "radar": {"E": 0.0, "Ptrk": 0.0},
@@ -98,13 +101,18 @@ def _extract_uav_id(explicit_uav_id: Optional[str], packet: Dict[str, Any], moda
     return "UAV_HTTP"
 
 
-def _fill_base_fields(row: Dict[str, Any], timestamp: float, uav_id: str) -> Dict[str, Any]:
+def _fill_base_fields(
+    row: Dict[str, Any],
+    timestamp: float,
+    uav_id: str,
+    default_missing_flag: int = 0,
+) -> Dict[str, Any]:
     out = dict(row)
     out["timestamp"] = _to_float(out.get("timestamp", timestamp), timestamp)
     out["uav_id"] = str(out.get("uav_id", out.get("id", uav_id)))
     out["arrival_time"] = _to_float(out.get("arrival_time", out["timestamp"]), out["timestamp"])
     out["scenario_tag"] = str(out.get("scenario_tag", "HTTP"))
-    out["missing_flag"] = int(_to_float(out.get("missing_flag", 0.0), 0.0) > 0.0)
+    out["missing_flag"] = int(_to_float(out.get("missing_flag", float(default_missing_flag)), float(default_missing_flag)) > 0.0)
     return out
 
 
@@ -172,9 +180,11 @@ def _build_truth_rows(per_mod_rows: Dict[str, List[Dict[str, Any]]]) -> List[Dic
 def _build_raw_frames_from_packets(
     packets: List[Dict[str, Any]],
     req_uav_id: Optional[str],
+    expected_packets: Optional[int] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, pd.DataFrame]]:
-    if len(packets) != 20:
-        raise HTTPException(status_code=400, detail=f"Expected exactly 20 packets, got {len(packets)}")
+    expect_n = int(expected_packets) if expected_packets is not None else 20
+    if len(packets) != expect_n:
+        raise HTTPException(status_code=400, detail=f"Expected exactly {expect_n} packets, got {len(packets)}")
 
     per_mod_rows: Dict[str, List[Dict[str, Any]]] = {m: [] for m in _REQ_MODALITIES}
     current_uav_id = req_uav_id
@@ -189,7 +199,13 @@ def _build_raw_frames_from_packets(
             current_uav_id = uav_id
 
         for m in _REQ_MODALITIES:
-            row = _fill_base_fields(modality_rows[m], timestamp=ts, uav_id=current_uav_id)
+            mod_row = modality_rows[m]
+            row = _fill_base_fields(
+                mod_row,
+                timestamp=ts,
+                uav_id=current_uav_id,
+                default_missing_flag=1 if len(mod_row) == 0 else 0,
+            )
             row.setdefault("lat", float("nan"))
             row.setdefault("lon", float("nan"))
             row.setdefault("alt", float("nan"))
@@ -291,9 +307,8 @@ def _build_processed_modality_frames(
 @lru_cache(maxsize=1)
 def _load_runtime_bundle():
     # Delay heavy imports until the endpoint is called.
-    drone_fusion_dir = Path(__file__).resolve().parents[1] / "core" / "droneFusion"
-    if str(drone_fusion_dir) not in sys.path:
-        sys.path.insert(0, str(drone_fusion_dir))
+    if str(_DRONE_FUSION_DIR) not in sys.path:
+        sys.path.insert(0, str(_DRONE_FUSION_DIR))
     try:
         import torch  # noqa: WPS433
         from drone_sys.app.core.droneFusion import inference as inf  # noqa: WPS433
@@ -301,10 +316,13 @@ def _load_runtime_bundle():
         raise RuntimeError(f"Failed to import inference runtime dependencies: {ex}") from ex
 
     model, x_mean, x_std, y_mean, y_std, runtime = inf.load_model_and_runtime(
-        model_path=inf.MODEL_PATH,
-        norm_path=inf.NORM_PATH,
+        model_path=str(_MODEL_PATH),
+        norm_path=str(_NORM_PATH),
         device=inf.DEVICE,
     )
+    runtime = dict(runtime)
+    runtime["router_model_path"] = str(_MODEL_PATH)
+    runtime["router_norm_path"] = str(_NORM_PATH)
     return torch, inf, model, x_mean, x_std, y_mean, y_std, runtime
 
 
@@ -454,19 +472,24 @@ def _run_model_inference(
 
 
 @router.post("/fusion/run")
-@router.post("/run")
 def run_fusion_http(payload: Any = Body(...)):
     """
     Input:
-    - list[20] of packets, each packet contains 5 modalities (gps/radar/fiveg/tdoa/acoustic)
-    - or object with data: list[20]
+    - list[window_size] of packets, each packet contains 5 modalities (gps/radar/fiveg/tdoa/acoustic)
+    - or object with data: list[window_size]
 
     Output:
     - list of {timestamp, lat, lon, alt}
     """
     packets, req_uav_id = _extract_packets(payload)
     try:
-        truth_df, raw_frames = _build_raw_frames_from_packets(packets=packets, req_uav_id=req_uav_id)
+        _, _, _, _, _, _, _, runtime = _load_runtime_bundle()
+        expected_packets = int(runtime.get("window_size", 20))
+        truth_df, raw_frames = _build_raw_frames_from_packets(
+            packets=packets,
+            req_uav_id=req_uav_id,
+            expected_packets=expected_packets,
+        )
         cfg = tc.default_cfg()
         processed_mod_frames = _build_processed_modality_frames(raw_frames=raw_frames, cfg=cfg)
         return _run_model_inference(truth_df=truth_df, mod_frames_by_request_name=processed_mod_frames)

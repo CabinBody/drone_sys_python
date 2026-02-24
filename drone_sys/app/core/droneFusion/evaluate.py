@@ -15,11 +15,11 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 # ==============================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_ROOT = r"../datasetBuilder/dataset-processed/test-datasets/scenario_multi_source_100x60/"
-MODEL_PATH = os.path.join(BASE_DIR, "./model_result/graph_fusion_model_epoch_1.pt")
-NORM_PATH = os.path.join(BASE_DIR, "./model_result/graph_norm_mix.pth")
+MODEL_PATH = os.path.join(BASE_DIR, "./model_result/graph_fusion_model_v2.6.pt")
+NORM_PATH = os.path.join(BASE_DIR, "./model_result/graph_norm_v2.pth")
 DEVICE = inf.DEVICE
 
-OUTPUT_DIR = os.path.join(BASE_DIR, "eval_results_epoch_1_multi")
+OUTPUT_DIR = os.path.join(BASE_DIR, "eval_results_v2.6_multi")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 SAVE_FIG = True
@@ -372,6 +372,38 @@ def evaluate_uav_advanced(model, batch_dir, uav, x_mean, x_std, y_mean, y_std, r
             df_m_u = df_m_u[df_m_u[id_col_m] == uav]
         mod_errs[m] = modality_metrics(df_t, df_m_u, lat0, lon0, alt0, float(runtime["align_tolerance_s"]))
 
+    win_cov = []
+    win_full = []
+    win_confq = []
+    win_trans = []
+    for w in windows:
+        sm = w.get("sample_meta", {})
+        try:
+            if isinstance(sm, dict):
+                if "coverage_ratio" in sm:
+                    win_cov.append(float(sm["coverage_ratio"]))
+                if "full_modal_ratio" in sm:
+                    win_full.append(float(sm["full_modal_ratio"]))
+                if "conf_quality_ratio" in sm:
+                    win_confq.append(float(sm["conf_quality_ratio"]))
+                if "transition_ratio" in sm:
+                    win_trans.append(float(sm["transition_ratio"]))
+        except Exception:
+            pass
+
+    best_single_rmse = np.nan
+    best_single_name = None
+    for m in modalities:
+        rm = float(mod_errs.get(m, {}).get("RMSE", np.nan))
+        if np.isfinite(rm) and (not np.isfinite(best_single_rmse) or rm < best_single_rmse):
+            best_single_rmse = rm
+            best_single_name = m
+    fusion_vs_best_single_gap = (
+        float(fusion_xyz["RMSE"] - best_single_rmse)
+        if np.isfinite(best_single_rmse) and np.isfinite(fusion_xyz.get("RMSE", np.nan))
+        else np.nan
+    )
+
     if SAVE_FIG:
         batch_name = os.path.basename(batch_dir)
         plot_modality_bar(uav=uav, batch_name=batch_name, fusion=fusion_xyz, mod_errs=mod_errs)
@@ -392,6 +424,14 @@ def evaluate_uav_advanced(model, batch_dir, uav, x_mean, x_std, y_mean, y_std, r
             "tail_cover_count_mean": float(np.mean(cover_count[-min(20, len(cover_count)) :])),
             "head_cover_weight_mean": float(np.mean(cover_weight[: min(20, len(cover_weight))])),
             "tail_cover_weight_mean": float(np.mean(cover_weight[-min(20, len(cover_weight)) :])),
+            "win_coverage_ratio_mean": float(np.mean(win_cov)) if len(win_cov) > 0 else np.nan,
+            "win_full_modal_ratio_mean": float(np.mean(win_full)) if len(win_full) > 0 else np.nan,
+            "win_conf_quality_ratio_mean": float(np.mean(win_confq)) if len(win_confq) > 0 else np.nan,
+            "win_transition_ratio_mean": float(np.mean(win_trans)) if len(win_trans) > 0 else np.nan,
+            "best_single_rmse_3d": float(best_single_rmse) if np.isfinite(best_single_rmse) else np.nan,
+            "fusion_minus_best_single_rmse_3d": fusion_vs_best_single_gap,
+            "fusion_beats_best_single_rmse": float(fusion_vs_best_single_gap < 0) if np.isfinite(fusion_vs_best_single_gap) else np.nan,
+            "best_single_modality": best_single_name if best_single_name is not None else "",
         },
     }
 
@@ -409,6 +449,11 @@ def main():
         f"in_dim={runtime['in_dim']} | window={runtime['window_size']} | stride={runtime['stride']} | "
         f"mods={runtime['modalities']}"
     )
+    if isinstance(runtime.get("load_info"), dict) and (not bool(runtime["load_info"].get("strict", True))):
+        print(
+            f"[Runtime][WARN] non-strict model load | missing={runtime['load_info'].get('missing_keys', 0)} "
+            f"unexpected={runtime['load_info'].get('unexpected_keys', 0)}"
+        )
 
     rows = []
     cnt = 0

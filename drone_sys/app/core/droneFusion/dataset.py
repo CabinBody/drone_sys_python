@@ -45,6 +45,7 @@ ONEHOT_OFFSET = BASE_FEAT_DIM
 IDX_CONF = 7
 IDX_TNORM = 8
 IDX_POS_VALID = 9
+IDX_OBS_VALID = 10
 
 NORM_STATS_PATH = "./model_result/graph_norm_mix.pth"
 
@@ -271,6 +272,72 @@ def _safe_torch_load(path: str):
         return torch.load(path, map_location="cpu")
 
 
+def _build_sample_meta_from_arrays(node_feat, node_t, node_m, window_size: int, num_modalities: int):
+    t_len = int(window_size)
+    m_len = int(num_modalities)
+    slot_count = np.zeros((t_len, m_len), dtype=np.float32)
+    slot_conf_sum = np.zeros((t_len, m_len), dtype=np.float32)
+    slot_obs_valid_sum = np.zeros((t_len, m_len), dtype=np.float32)
+    slot_pos_valid_sum = np.zeros((t_len, m_len), dtype=np.float32)
+
+    if node_feat is not None and len(node_feat) > 0:
+        nn = min(len(node_feat), len(node_t), len(node_m))
+        for i in range(nn):
+            ti = int(node_t[i])
+            mi = int(node_m[i])
+            if ti < 0 or ti >= t_len or mi < 0 or mi >= m_len:
+                continue
+            slot_count[ti, mi] += 1.0
+            if node_feat.shape[1] > IDX_CONF:
+                c = float(node_feat[i, IDX_CONF])
+                if np.isfinite(c):
+                    slot_conf_sum[ti, mi] += float(np.clip(c, 0.0, 1.0))
+            if node_feat.shape[1] > IDX_OBS_VALID:
+                slot_obs_valid_sum[ti, mi] += 1.0 if float(node_feat[i, IDX_OBS_VALID]) > 0.5 else 0.0
+            if node_feat.shape[1] > IDX_POS_VALID:
+                slot_pos_valid_sum[ti, mi] += 1.0 if float(node_feat[i, IDX_POS_VALID]) > 0.5 else 0.0
+
+    slot_avail = (slot_count > 0).astype(np.float32)
+    slot_conf_mean = np.divide(slot_conf_sum, np.maximum(slot_count, 1.0), out=np.zeros_like(slot_conf_sum), where=slot_count > 0)
+    slot_obs_valid_mean = np.divide(
+        slot_obs_valid_sum, np.maximum(slot_count, 1.0), out=np.zeros_like(slot_obs_valid_sum), where=slot_count > 0
+    )
+    slot_pos_valid_mean = np.divide(
+        slot_pos_valid_sum, np.maximum(slot_count, 1.0), out=np.zeros_like(slot_pos_valid_sum), where=slot_count > 0
+    )
+
+    coverage_t = slot_avail.mean(axis=1) if t_len > 0 else np.zeros((0,), dtype=np.float32)
+    full_t = (slot_avail.sum(axis=1) >= float(max(m_len, 1))).astype(np.float32) if t_len > 0 else np.zeros((0,), dtype=np.float32)
+    coverage_ratio = float(slot_avail.mean()) if slot_avail.size > 0 else 0.0
+    full_modal_ratio = float(full_t.mean()) if full_t.size > 0 else 0.0
+
+    observed = slot_count > 0
+    mean_conf = float(np.mean(slot_conf_mean[observed])) if np.any(observed) else 0.0
+    conf_quality_ratio = float(np.clip(mean_conf * coverage_ratio, 0.0, 1.0))
+
+    if t_len > 1:
+        transition_ratio = float(np.mean(np.abs(np.diff(slot_avail, axis=0))))
+        coverage_delta_mean = float(np.mean(np.abs(np.diff(coverage_t))))
+    else:
+        transition_ratio = 0.0
+        coverage_delta_mean = 0.0
+
+    return {
+        "slot_avail": slot_avail.astype(np.float32),
+        "slot_count": slot_count.astype(np.float32),
+        "slot_conf_mean": slot_conf_mean.astype(np.float32),
+        "slot_obs_valid_mean": slot_obs_valid_mean.astype(np.float32),
+        "slot_pos_valid_mean": slot_pos_valid_mean.astype(np.float32),
+        "coverage_t": coverage_t.astype(np.float32),
+        "full_t": full_t.astype(np.float32),
+        "coverage_ratio": np.float32(coverage_ratio),
+        "full_modal_ratio": np.float32(full_modal_ratio),
+        "conf_quality_ratio": np.float32(conf_quality_ratio),
+        "transition_ratio": np.float32(transition_ratio),
+        "coverage_delta_mean": np.float32(coverage_delta_mean),
+    }
+
+
 def _build_uav_samples_worker(payload):
     df_t, uav_mod_frames, modalities, window_size, stride, align_tolerance_s = payload
 
@@ -348,13 +415,24 @@ def _build_uav_samples_worker(payload):
         if len(feats) == 0:
             continue
 
+        node_feat_arr = np.stack(feats).astype(np.float32)
+        node_t_arr = np.array(t_ids, dtype=np.int64)
+        node_m_arr = np.array(m_ids, dtype=np.int64)
+        sample_meta = _build_sample_meta_from_arrays(
+            node_feat=node_feat_arr,
+            node_t=node_t_arr,
+            node_m=node_m_arr,
+            window_size=window_size,
+            num_modalities=len(modalities),
+        )
         uav_samples.append(
             {
-                "node_feat": np.stack(feats).astype(np.float32),
-                "node_t": np.array(t_ids, dtype=np.int64),
-                "node_m": np.array(m_ids, dtype=np.int64),
+                "node_feat": node_feat_arr,
+                "node_t": node_t_arr,
+                "node_m": node_m_arr,
                 "y": y.astype(np.float32),
                 "obs_json": obs_json,
+                "sample_meta": sample_meta,
             }
         )
     return uav_samples
@@ -401,7 +479,7 @@ class MultiSourceGraphDataset(Dataset):
         self.use_sample_cache = bool(use_sample_cache)
         self.rebuild_sample_cache = bool(rebuild_sample_cache)
         self.sample_cache_dir = str(sample_cache_dir)
-        self.cache_version = 1
+        self.cache_version = 2
 
         t0 = time.time()
         if self.verbose:
@@ -424,7 +502,9 @@ class MultiSourceGraphDataset(Dataset):
             x_mean = x_all.mean(0)
             x_std = x_all.std(0) + 1e-6
 
-            # Do not standardize t_norm / flags / acoustic side channels / one-hot
+            # Do not standardize confidence / t_norm / flags / acoustic side channels / one-hot
+            x_mean[IDX_CONF] = 0.0
+            x_std[IDX_CONF] = 1.0
             x_mean[IDX_TNORM:] = 0.0
             x_std[IDX_TNORM:] = 1.0
 
@@ -441,6 +521,13 @@ class MultiSourceGraphDataset(Dataset):
                 },
                 self.norm_stats_path,
             )
+
+        # Keep confidence and validity/time indicators in natural ranges for gating logic,
+        # even when loading legacy norm files that standardized confidence.
+        x_mean[IDX_CONF] = 0.0
+        x_std[IDX_CONF] = 1.0
+        x_mean[IDX_TNORM:] = 0.0
+        x_std[IDX_TNORM:] = 1.0
 
         for s in samples:
             if len(s["node_feat"]) > 0:
@@ -663,12 +750,21 @@ class MultiSourceGraphDataset(Dataset):
 
     def __getitem__(self, idx):
         s = self.samples[idx]
+        sample_meta = s.get("sample_meta", {})
+        sample_meta_t = {}
+        if isinstance(sample_meta, dict):
+            for k, v in sample_meta.items():
+                if isinstance(v, np.ndarray):
+                    sample_meta_t[k] = torch.tensor(v, dtype=torch.float32)
+                else:
+                    sample_meta_t[k] = torch.tensor(float(v), dtype=torch.float32)
         return {
             "node_feat": torch.tensor(s["node_feat"], dtype=torch.float32),
             "node_t": torch.tensor(s["node_t"], dtype=torch.long),
             "node_m": torch.tensor(s["node_m"], dtype=torch.long),
             "y": torch.tensor(s["y"], dtype=torch.float32),
             "obs_json": s["obs_json"],
+            "sample_meta": sample_meta_t,
         }
 
 
@@ -688,6 +784,7 @@ def sparse_collate_fn(batch):
     y = torch.zeros((bsz, t_len, 3), dtype=torch.float32)
 
     obs_json = []
+    meta_lists = {}
     for i, item in enumerate(batch):
         n = item["node_feat"].shape[0]
         node_feat[i, :n] = item["node_feat"]
@@ -696,6 +793,19 @@ def sparse_collate_fn(batch):
         node_mask[i, :n] = 1.0
         y[i] = item["y"]
         obs_json.append(item["obs_json"])
+        sm = item.get("sample_meta", {})
+        if isinstance(sm, dict):
+            for k, v in sm.items():
+                meta_lists.setdefault(k, []).append(v)
+
+    collated_meta = {}
+    for k, vals in meta_lists.items():
+        if len(vals) == 0:
+            continue
+        if torch.is_tensor(vals[0]) and vals[0].ndim > 0:
+            collated_meta[k] = torch.stack(vals, dim=0)
+        elif torch.is_tensor(vals[0]):
+            collated_meta[k] = torch.stack([x.reshape(1) for x in vals], dim=0).reshape(bsz)
 
     return {
         "node_feat": node_feat,
@@ -704,4 +814,5 @@ def sparse_collate_fn(batch):
         "node_mask": node_mask,
         "y": y,
         "obs_json": obs_json,
+        "sample_meta": collated_meta,
     }

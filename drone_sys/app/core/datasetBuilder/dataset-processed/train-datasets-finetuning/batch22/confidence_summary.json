@@ -10,11 +10,13 @@
   "modalities": {
     "gps": {
       "rows": 120200,
-      "dropped_quality_columns": [
+      "quality_columns": [
         "Nsat",
         "DOP",
         "RTK"
       ],
+      "quality_columns_preserved": true,
+      "dropped_quality_columns": [],
       "added_columns": [
         "phi_Nsat",
         "phi_DOP",
@@ -24,7 +26,7 @@
         "confidence"
       ],
       "confidence_mean": 0.6599844293151098,
-      "confidence_std": 0.2136085672199102,
+      "confidence_std": 0.21360856721991006,
       "scenario_confidence_mean": {
         "A": 0.806426241970744,
         "B": 0.6260716502766395,
@@ -35,10 +37,12 @@
     },
     "radar": {
       "rows": 48200,
-      "dropped_quality_columns": [
+      "quality_columns": [
         "E",
         "Ptrk"
       ],
+      "quality_columns_preserved": true,
+      "dropped_quality_columns": [],
       "added_columns": [
         "phi_E",
         "phi_Ptrk",
@@ -46,7 +50,7 @@
         "st_m",
         "confidence"
       ],
-      "confidence_mean": 0.519498456133892,
+      "confidence_mean": 0.5194984561338919,
       "confidence_std": 0.24837609983806425,
       "scenario_confidence_mean": {
         "A": 0.7097967863603392,
@@ -58,12 +62,14 @@
     },
     "fiveg": {
       "rows": 240200,
-      "dropped_quality_columns": [
+      "quality_columns": [
         "SNR",
         "RSSI",
         "d",
         "ploss"
       ],
+      "quality_columns_preserved": true,
+      "dropped_quality_columns": [],
       "added_columns": [
         "phi_SNR",
         "phi_RSSI",
@@ -73,8 +79,8 @@
         "st_m",
         "confidence"
       ],
-      "confidence_mean": 0.557609137493254,
-      "confidence_std": 0.20340993496000667,
+      "confidence_mean": 0.5576091374932541,
+      "confidence_std": 0.20340993496000598,
       "scenario_confidence_mean": {
         "A": 0.7062728458010135,
         "B": 0.5415166688394638,
@@ -85,10 +91,12 @@
     },
     "tdoa": {
       "rows": 24200,
-      "dropped_quality_columns": [
+      "quality_columns": [
         "e",
         "eps_sync"
       ],
+      "quality_columns_preserved": true,
+      "dropped_quality_columns": [],
       "added_columns": [
         "phi_e",
         "phi_eps_sync",
@@ -108,10 +116,12 @@
     },
     "acoustic": {
       "rows": 24200,
-      "dropped_quality_columns": [
+      "quality_columns": [
         "SNRa",
         "n"
       ],
+      "quality_columns_preserved": true,
+      "dropped_quality_columns": [],
       "added_columns": [
         "phi_SNRa",
         "phi_n",

@@ -803,6 +803,45 @@ def truth_numeric_stats(truth):
     return trstat
 
 
+def modality_transition_stats(df: pd.DataFrame):
+    out = {
+        "rows": int(len(df)),
+        "observed_ratio": 0.0,
+        "missing_ratio": 0.0,
+        "state_transition_count": 0,
+        "blackout_ratio": 0.0,
+        "blackout_transition_count": 0,
+    }
+    if df is None or len(df) == 0 or "uav_id" not in df.columns:
+        return out
+
+    if "missing_flag" in df.columns:
+        miss = pd.to_numeric(df["missing_flag"], errors="coerce").fillna(0).to_numpy(dtype=float)
+        miss = (miss > 0.5).astype(np.int8)
+        out["missing_ratio"] = float(np.mean(miss))
+        out["observed_ratio"] = float(1.0 - out["missing_ratio"])
+
+    if "blackout_flag" in df.columns:
+        blk = pd.to_numeric(df["blackout_flag"], errors="coerce").fillna(0).to_numpy(dtype=float)
+        blk = (blk > 0.5).astype(np.int8)
+        out["blackout_ratio"] = float(np.mean(blk))
+
+    trans_missing = 0
+    trans_blackout = 0
+    if "missing_flag" in df.columns or "blackout_flag" in df.columns:
+        for _, g in df.groupby("uav_id", sort=False):
+            g = g.sort_values("timestamp")
+            if "missing_flag" in g.columns and len(g) > 1:
+                miss_g = (pd.to_numeric(g["missing_flag"], errors="coerce").fillna(0).to_numpy(dtype=float) > 0.5).astype(np.int8)
+                trans_missing += int(np.sum(np.abs(np.diff(miss_g))))
+            if "blackout_flag" in g.columns and len(g) > 1:
+                blk_g = (pd.to_numeric(g["blackout_flag"], errors="coerce").fillna(0).to_numpy(dtype=float) > 0.5).astype(np.int8)
+                trans_blackout += int(np.sum(np.abs(np.diff(blk_g))))
+    out["state_transition_count"] = int(trans_missing)
+    out["blackout_transition_count"] = int(trans_blackout)
+    return out
+
+
 def precision_audit(cfg, n_samples=3000):
     means = {}
     for i, modality in enumerate(DESIRED_PRECISION_ORDER):
@@ -882,7 +921,14 @@ def write_batch(batch_dir, batch_uids, cache, cfg, batch_label):
             stat.update(df)
             if i % 200 == 0:
                 print(f"    [{batch_label}:{m}] {i}/{len(batch_uids)}")
-        mod_sum[m] = {"rows": rows_total, "scenario_counts": dict(cnt), "numeric_stats": stat.as_dict(), "path": fn}
+        mod_trans = modality_transition_stats(pd.read_csv(p)) if wrote else modality_transition_stats(pd.DataFrame())
+        mod_sum[m] = {
+            "rows": rows_total,
+            "scenario_counts": dict(cnt),
+            "numeric_stats": stat.as_dict(),
+            "transition_stats": mod_trans,
+            "path": fn,
+        }
 
     with open(os.path.join(batch_dir, "batch_summary.json"), "w", encoding="utf-8") as f:
         json.dump(
@@ -977,7 +1023,14 @@ def run(cfg):
                 stat.update(df)
                 if i % 200 == 0:
                     print(f"  [{m}] {i}/{len(uids)}")
-            mod_sum[m] = {"rows": rows_total, "scenario_counts": dict(cnt), "numeric_stats": stat.as_dict(), "path": fn}
+            mod_trans = modality_transition_stats(pd.read_csv(p)) if wrote else modality_transition_stats(pd.DataFrame())
+            mod_sum[m] = {
+                "rows": rows_total,
+                "scenario_counts": dict(cnt),
+                "numeric_stats": stat.as_dict(),
+                "transition_stats": mod_trans,
+                "path": fn,
+            }
 
         summary["files"] = {
             "layout": "flat",

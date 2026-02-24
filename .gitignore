@@ -27,5 +27,6 @@ logs/
 .gz
 .cache
 **/dataset-processed/train-datasets/
+**/dataset-processed/train-datasets-finetuning/
 **/dataset/training-datasets/
 **/dataset/training-datasets-finetuning/
