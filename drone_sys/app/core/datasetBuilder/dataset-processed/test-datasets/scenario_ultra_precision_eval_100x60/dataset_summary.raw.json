@@ -1,0 +1,903 @@
+{
+  "seed": 20260323,
+  "config": {
+    "seed": 20260323,
+    "output_dir": "./dataset/test-datasets/scenario_ultra_precision_eval_100x60",
+    "worker_num": 16,
+    "use_multiprocessing": true,
+    "batching": {
+      "enabled": true,
+      "batch_size": 200,
+      "folder_prefix": "batch"
+    },
+    "simulation": {
+      "uav_count": 100,
+      "duration_s": 60.0,
+      "truth_dt_s": 1.0,
+      "start_epoch": 1771918627,
+      "base_lat": 45.0,
+      "base_lon": 5.0,
+      "spawn_span_deg": 0.35,
+      "alt_range_m": [
+        80.0,
+        160.0
+      ],
+      "speed_range_mps": [
+        30.0,
+        55.0
+      ],
+      "segment_count": [
+        10,
+        22
+      ],
+      "segment_step_deg": [
+        0.0008,
+        0.0028
+      ],
+      "segment_alt_step_m": 25.0
+    },
+    "scenario_mix": {
+      "A": 0.62,
+      "B": 0.26,
+      "C": 0.07,
+      "D": 0.03,
+      "E": 0.02
+    },
+    "scenario_duration_s": {
+      "A": [
+        6.0,
+        16.0
+      ],
+      "B": [
+        5.0,
+        12.0
+      ],
+      "C": [
+        2.0,
+        8.0
+      ],
+      "D": [
+        2.0,
+        5.0
+      ],
+      "E": [
+        2.0,
+        8.0
+      ]
+    },
+    "modalities": {
+      "gps": {
+        "rate_hz": 5.0,
+        "time_jitter_s": 0.006,
+        "arrival_jitter_s": 0.008,
+        "reorder_window": 4
+      },
+      "radar": {
+        "rate_hz": 2.0,
+        "time_jitter_s": 0.015,
+        "arrival_jitter_s": 0.018,
+        "reorder_window": 6
+      },
+      "fiveg": {
+        "rate_hz": 10.0,
+        "time_jitter_s": 0.005,
+        "arrival_jitter_s": 0.03,
+        "reorder_window": 10
+      },
+      "tdoa": {
+        "rate_hz": 1.0,
+        "time_jitter_s": 0.02,
+        "arrival_jitter_s": 0.02,
+        "reorder_window": 5
+      },
+      "acoustic": {
+        "rate_hz": 1.0,
+        "time_jitter_s": 0.02,
+        "arrival_jitter_s": 0.025,
+        "reorder_window": 5
+      }
+    },
+    "quality_bounds": {
+      "gps": {
+        "Nsat": [
+          4,
+          20
+        ],
+        "DOP": [
+          0.5,
+          8.0
+        ],
+        "RTK": [
+          "FIX",
+          "FLOAT",
+          "NONE"
+        ]
+      },
+      "radar": {
+        "E": [
+          0.0,
+          1.0
+        ],
+        "Ptrk": [
+          0.0,
+          1.0
+        ]
+      },
+      "fiveg": {
+        "SNR": [
+          0.0,
+          30.0
+        ],
+        "RSSI": [
+          -110.0,
+          -50.0
+        ],
+        "d": [
+          5.0,
+          300.0
+        ],
+        "ploss": [
+          0.0,
+          0.5
+        ]
+      },
+      "tdoa": {
+        "eps_sync": [
+          0.0,
+          200.0
+        ],
+        "e": [
+          0.0,
+          50.0
+        ]
+      },
+      "acoustic": {
+        "SNRa": [
+          0.0,
+          30.0
+        ],
+        "n": [
+          0.0,
+          1.0
+        ]
+      }
+    },
+    "environment": {
+      "anchors": {
+        "gps": [
+          45.0,
+          5.0
+        ],
+        "radar": [
+          45.02,
+          5.01
+        ],
+        "fiveg": [
+          44.99,
+          5.03
+        ],
+        "tdoa": [
+          45.04,
+          4.98
+        ],
+        "acoustic": [
+          44.97,
+          5.0
+        ]
+      },
+      "max_range_m": {
+        "gps": 60000.0,
+        "radar": 45000.0,
+        "fiveg": 22000.0,
+        "tdoa": 35000.0,
+        "acoustic": 18000.0
+      },
+      "obstacle_zones": [
+        {
+          "lat": 45.06,
+          "lon": 5.06,
+          "radius_m": 12000.0,
+          "strength": 0.6
+        },
+        {
+          "lat": 44.93,
+          "lon": 5.02,
+          "radius_m": 9000.0,
+          "strength": 0.45
+        },
+        {
+          "lat": 45.01,
+          "lon": 4.94,
+          "radius_m": 10000.0,
+          "strength": 0.5
+        }
+      ],
+      "interference_events": [
+        {
+          "start_s": 15.0,
+          "end_s": 22.0,
+          "modalities": [
+            "fiveg",
+            "tdoa"
+          ],
+          "level": 0.18
+        },
+        {
+          "start_s": 34.0,
+          "end_s": 40.0,
+          "modalities": [
+            "gps",
+            "radar"
+          ],
+          "level": 0.1
+        },
+        {
+          "start_s": 46.0,
+          "end_s": 54.0,
+          "modalities": [
+            "acoustic",
+            "fiveg"
+          ],
+          "level": 0.22
+        }
+      ]
+    },
+    "drift": {
+      "enabled": true,
+      "start_prob": {
+        "C": 0.015,
+        "E": 0.04
+      },
+      "duration_s": [
+        2.0,
+        8.0
+      ],
+      "bias_mps": 0.1,
+      "rw_sigma_m": 0.2,
+      "decay": 0.97
+    },
+    "missing_control": {
+      "global_scale": 1.0,
+      "global_bias": 0.0,
+      "scenario_scale": {
+        "A": 1.0,
+        "B": 1.0,
+        "C": 1.0,
+        "D": 1.0,
+        "E": 1.0
+      },
+      "modality_scale": {
+        "gps": 1.0,
+        "radar": 1.0,
+        "fiveg": 1.0,
+        "tdoa": 1.0,
+        "acoustic": 1.0
+      },
+      "modality_bias": {
+        "gps": 0.0,
+        "radar": 0.0,
+        "fiveg": 0.0,
+        "tdoa": 0.0,
+        "acoustic": 0.0
+      },
+      "force_missing_modalities": [],
+      "force_available_modalities": [
+        "gps",
+        "radar",
+        "fiveg",
+        "tdoa",
+        "acoustic"
+      ],
+      "random_blackout": {
+        "enabled": false,
+        "event_count": [
+          0,
+          0
+        ],
+        "modality_count": [
+          2,
+          5
+        ],
+        "duration_s": [
+          5.0,
+          10.0
+        ],
+        "modalities": [
+          "gps",
+          "radar",
+          "fiveg",
+          "tdoa",
+          "acoustic"
+        ]
+      }
+    },
+    "modality_error_scale": {
+      "gps": 0.36,
+      "radar": 0.54,
+      "fiveg": 0.68,
+      "tdoa": 0.86,
+      "acoustic": 1.22
+    }
+  },
+  "files": {
+    "layout": "batched",
+    "batch_count": 1,
+    "batches": [
+      {
+        "batch": "batch01",
+        "path": "batch01",
+        "uav_count": 100,
+        "uav_range": [
+          "UAV00001",
+          "UAV00100"
+        ],
+        "truth_rows": 6100,
+        "modalities": {
+          "gps": {
+            "rows": 30100,
+            "scenario_counts": {
+              "A": 20655,
+              "C": 1183,
+              "B": 7526,
+              "E": 401,
+              "D": 335
+            },
+            "numeric_stats": {
+              "timestamp": {
+                "count": 30100,
+                "min": 1771918627.0,
+                "max": 1771918687.0,
+                "mean": 1771918657.0000007,
+                "std": 67.88225099390856
+              },
+              "lat": {
+                "count": 30100,
+                "min": 44.64161801164179,
+                "max": 45.354370551061635,
+                "mean": 45.00697044617317,
+                "std": 0.2059478662030919
+              },
+              "lon": {
+                "count": 30100,
+                "min": 4.658850927640516,
+                "max": 5.355022373299542,
+                "mean": 5.029974865421119,
+                "std": 0.19686816160031234
+              },
+              "alt": {
+                "count": 30100,
+                "min": 68.76473609378228,
+                "max": 171.55717060201255,
+                "mean": 119.00384397461355,
+                "std": 23.608514197350953
+              },
+              "vx": {
+                "count": 30100,
+                "min": -72.9280179627975,
+                "max": 72.66191417560611,
+                "mean": -4.826113531254799,
+                "std": 38.05419174337008
+              },
+              "vy": {
+                "count": 30100,
+                "min": -72.51104587727099,
+                "max": 72.83966948917639,
+                "mean": 2.491925168266486,
+                "std": 35.12739552687733
+              },
+              "vz": {
+                "count": 30100,
+                "min": -1.1899849029612755,
+                "max": 1.4528540967637775,
+                "mean": -0.0004857291879067264,
+                "std": 0.17075884998187393
+              },
+              "speed": {
+                "count": 30100,
+                "min": 28.82491543175457,
+                "max": 73.29768723874483,
+                "mean": 51.1634225051381,
+                "std": 9.689677238441218
+              },
+              "missing_flag": {
+                "count": 30100,
+                "min": 0.0,
+                "max": 0.0,
+                "mean": 0.0,
+                "std": 0.0
+              },
+              "blackout_flag": {
+                "count": 30100,
+                "min": 0.0,
+                "max": 0.0,
+                "mean": 0.0,
+                "std": 0.0
+              },
+              "arrival_time": {
+                "count": 30100,
+                "min": 1771918626.9980469,
+                "max": 1771918687.0444589,
+                "mean": 1771918657.025109,
+                "std": 39.191835884530846
+              },
+              "Nsat": {
+                "count": 30100,
+                "min": 4.0,
+                "max": 20.0,
+                "mean": 13.423687707641196,
+                "std": 3.2685642080595074
+              },
+              "DOP": {
+                "count": 30100,
+                "min": 0.5,
+                "max": 8.0,
+                "mean": 1.9888427779190163,
+                "std": 1.1588604581623894
+              }
+            },
+            "transition_stats": {
+              "rows": 30100,
+              "observed_ratio": 1.0,
+              "missing_ratio": 0.0,
+              "state_transition_count": 0,
+              "blackout_ratio": 0.0,
+              "blackout_transition_count": 0
+            },
+            "path": "gps.csv"
+          },
+          "radar": {
+            "rows": 12100,
+            "scenario_counts": {
+              "A": 8349,
+              "B": 2895,
+              "C": 499,
+              "D": 184,
+              "E": 173
+            },
+            "numeric_stats": {
+              "timestamp": {
+                "count": 12100,
+                "min": 1771918627.0,
+                "max": 1771918687.0,
+                "mean": 1771918656.9999473,
+                "std": 0.0
+              },
+              "lat": {
+                "count": 12100,
+                "min": 44.64127579784991,
+                "max": 45.35424928142293,
+                "mean": 45.006968242604316,
+                "std": 0.2059469702269683
+              },
+              "lon": {
+                "count": 12100,
+                "min": 4.6589402499026535,
+                "max": 5.355659374771079,
+                "mean": 5.0299770118612,
+                "std": 0.19686404960240203
+              },
+              "alt": {
+                "count": 12100,
+                "min": -50.97927313360148,
+                "max": 267.8736810003883,
+                "mean": 118.94491605843702,
+                "std": 26.8575214272967
+              },
+              "vx": {
+                "count": 12100,
+                "min": -73.63054788015567,
+                "max": 73.26120683818232,
+                "mean": -4.824523993242214,
+                "std": 38.054031085840414
+              },
+              "vy": {
+                "count": 12100,
+                "min": -73.19131710803812,
+                "max": 73.00518117273475,
+                "mean": 2.4831307778981655,
+                "std": 35.149291296627396
+              },
+              "vz": {
+                "count": 12100,
+                "min": -4.001775593437167,
+                "max": 3.3738357055729113,
+                "mean": 0.0014039849509489995,
+                "std": 0.3716666223787972
+              },
+              "speed": {
+                "count": 12100,
+                "min": 29.284651151460338,
+                "max": 74.23219857457958,
+                "mean": 51.17494674988069,
+                "std": 9.710143868915049
+              },
+              "missing_flag": {
+                "count": 12100,
+                "min": 0.0,
+                "max": 0.0,
+                "mean": 0.0,
+                "std": 0.0
+              },
+              "blackout_flag": {
+                "count": 12100,
+                "min": 0.0,
+                "max": 0.0,
+                "mean": 0.0,
+                "std": 0.0
+              },
+              "arrival_time": {
+                "count": 12100,
+                "min": 1771918626.9983091,
+                "max": 1771918687.1109865,
+                "mean": 1771918657.0604093,
+                "std": 59.86651818838306
+              },
+              "E": {
+                "count": 12100,
+                "min": 0.0,
+                "max": 0.9256440668180257,
+                "mean": 0.6421758195848873,
+                "std": 0.19924211631042343
+              },
+              "Ptrk": {
+                "count": 12100,
+                "min": 0.0,
+                "max": 0.9029392284985661,
+                "mean": 0.5807614543574753,
+                "std": 0.20708516226863224
+              }
+            },
+            "transition_stats": {
+              "rows": 12100,
+              "observed_ratio": 1.0,
+              "missing_ratio": 0.0,
+              "state_transition_count": 0,
+              "blackout_ratio": 0.0,
+              "blackout_transition_count": 0
+            },
+            "path": "radar.csv"
+          },
+          "fiveg": {
+            "rows": 60100,
+            "scenario_counts": {
+              "A": 41998,
+              "C": 2701,
+              "B": 14009,
+              "D": 518,
+              "E": 874
+            },
+            "numeric_stats": {
+              "timestamp": {
+                "count": 60100,
+                "min": 1771918627.0,
+                "max": 1771918687.0,
+                "mean": 1771918657.0000238,
+                "std": 45.254833995939045
+              },
+              "lat": {
+                "count": 60100,
+                "min": 44.64038694525902,
+                "max": 45.35495341521098,
+                "mean": 45.006970791657125,
+                "std": 0.20594908896140546
+              },
+              "lon": {
+                "count": 60100,
+                "min": 4.658583941799698,
+                "max": 5.355632846956831,
+                "mean": 5.029977956088641,
+                "std": 0.196869702853725
+              },
+              "alt": {
+                "count": 60100,
+                "min": -121.53784961112649,
+                "max": 324.73602915655005,
+                "mean": 119.10963285540305,
+                "std": 30.778109474838036
+              },
+              "vx": {
+                "count": 60100,
+                "min": -73.46032567880594,
+                "max": 73.4023577936481,
+                "mean": -4.829832769697523,
+                "std": 38.057522511188914
+              },
+              "vy": {
+                "count": 60100,
+                "min": -73.79511942322422,
+                "max": 73.79861228684388,
+                "mean": 2.491773271135165,
+                "std": 35.12801768672786
+              },
+              "vz": {
+                "count": 60100,
+                "min": -8.238115186202778,
+                "max": 7.515547488185766,
+                "mean": 0.005244733229247115,
+                "std": 0.594620199308015
+              },
+              "speed": {
+                "count": 60100,
+                "min": 25.089009997175076,
+                "max": 74.43121695022192,
+                "mean": 51.16607430805998,
+                "std": 9.709547131428945
+              },
+              "missing_flag": {
+                "count": 60100,
+                "min": 0.0,
+                "max": 0.0,
+                "mean": 0.0,
+                "std": 0.0
+              },
+              "blackout_flag": {
+                "count": 60100,
+                "min": 0.0,
+                "max": 0.0,
+                "mean": 0.0,
+                "std": 0.0
+              },
+              "arrival_time": {
+                "count": 60100,
+                "min": 1771918627.0014222,
+                "max": 1771918687.24345,
+                "mean": 1771918657.0743647,
+                "std": 32.0
+              },
+              "SNR": {
+                "count": 60100,
+                "min": 0.0,
+                "max": 30.0,
+                "mean": 16.351874047702747,
+                "std": 4.82716584034446
+              },
+              "RSSI": {
+                "count": 60100,
+                "min": -110.0,
+                "max": -52.63051696102905,
+                "mean": -73.47778491975367,
+                "std": 10.367796410174716
+              },
+              "d": {
+                "count": 60100,
+                "min": 5.0,
+                "max": 300.0,
+                "mean": 74.47973787145034,
+                "std": 42.74725259584818
+              },
+              "ploss": {
+                "count": 60100,
+                "min": 0.031043884433387747,
+                "max": 0.5,
+                "mean": 0.12529988885344417,
+                "std": 0.07055970091532225
+              }
+            },
+            "transition_stats": {
+              "rows": 60100,
+              "observed_ratio": 1.0,
+              "missing_ratio": 0.0,
+              "state_transition_count": 0,
+              "blackout_ratio": 0.0,
+              "blackout_transition_count": 0
+            },
+            "path": "5g_a.csv"
+          },
+          "tdoa": {
+            "rows": 6100,
+            "scenario_counts": {
+              "A": 4332,
+              "B": 1385,
+              "C": 225,
+              "E": 81,
+              "D": 77
+            },
+            "numeric_stats": {
+              "timestamp": {
+                "count": 6100,
+                "min": 1771918627.0,
+                "max": 1771918687.0,
+                "mean": 1771918657.0004153,
+                "std": 0.0
+              },
+              "lat": {
+                "count": 6100,
+                "min": 44.64113387777357,
+                "max": 45.354136119302325,
+                "mean": 45.00697137798881,
+                "std": 0.20594594712167846
+              },
+              "lon": {
+                "count": 6100,
+                "min": 4.65906494130877,
+                "max": 5.355384416416243,
+                "mean": 5.029982632849336,
+                "std": 0.19686103963861787
+              },
+              "alt": {
+                "count": 6100,
+                "min": -98.85726781077861,
+                "max": 291.98111690172516,
+                "mean": 118.89720359205103,
+                "std": 34.22300007425975
+              },
+              "vx": {
+                "count": 6100,
+                "min": -73.55511536481625,
+                "max": 73.64512719559535,
+                "mean": -4.798221946137476,
+                "std": 38.086783579974416
+              },
+              "vy": {
+                "count": 6100,
+                "min": -73.16302364991007,
+                "max": 74.09336747166527,
+                "mean": 2.4556926566605575,
+                "std": 35.164313873304415
+              },
+              "vz": {
+                "count": 6100,
+                "min": -6.989304951697534,
+                "max": 7.41438250934663,
+                "mean": 0.0032343452189769555,
+                "std": 1.017799131485757
+              },
+              "speed": {
+                "count": 6100,
+                "min": 25.59036029803837,
+                "max": 76.0811677874859,
+                "mean": 51.20110215120977,
+                "std": 9.781026426243569
+              },
+              "missing_flag": {
+                "count": 6100,
+                "min": 0.0,
+                "max": 0.0,
+                "mean": 0.0,
+                "std": 0.0
+              },
+              "blackout_flag": {
+                "count": 6100,
+                "min": 0.0,
+                "max": 0.0,
+                "mean": 0.0,
+                "std": 0.0
+              },
+              "arrival_time": {
+                "count": 6100,
+                "min": 1771918626.9777544,
+                "max": 1771918687.0947895,
+                "mean": 1771918657.041719,
+                "std": 0.0
+              },
+              "eps_sync": {
+                "count": 6100,
+                "min": 0.0,
+                "max": 200.0,
+                "mean": 53.33086425094118,
+                "std": 30.586873884614633
+              },
+              "e": {
+                "count": 6100,
+                "min": 0.0,
+                "max": 50.0,
+                "mean": 10.624081050341669,
+                "std": 7.371211572232397
+              }
+            },
+            "transition_stats": {
+              "rows": 6100,
+              "observed_ratio": 1.0,
+              "missing_ratio": 0.0,
+              "state_transition_count": 0,
+              "blackout_ratio": 0.0,
+              "blackout_transition_count": 0
+            },
+            "path": "tdoa.csv"
+          },
+          "acoustic": {
+            "rows": 6100,
+            "scenario_counts": {
+              "B": 1538,
+              "D": 57,
+              "A": 4183,
+              "C": 251,
+              "E": 71
+            },
+            "numeric_stats": {
+              "timestamp": {
+                "count": 6100,
+                "min": 1771918627.0,
+                "max": 1771918687.0,
+                "mean": 1771918657.0003111,
+                "std": 0.0
+              },
+              "detected_flag": {
+                "count": 6100,
+                "min": 1.0,
+                "max": 1.0,
+                "mean": 1.0,
+                "std": 0.0
+              },
+              "spl_db": {
+                "count": 6100,
+                "min": 35.0,
+                "max": 75.09290598123344,
+                "mean": 55.08663136329891,
+                "std": 7.987827335528469
+              },
+              "acoustic_energy": {
+                "count": 6100,
+                "min": 0.0005623413251903491,
+                "max": 0.056838852177955854,
+                "mean": 0.007882318691346792,
+                "std": 0.0056896646941628935
+              },
+              "missing_flag": {
+                "count": 6100,
+                "min": 0.0,
+                "max": 0.0,
+                "mean": 0.0,
+                "std": 0.0
+              },
+              "blackout_flag": {
+                "count": 6100,
+                "min": 0.0,
+                "max": 0.0,
+                "mean": 0.0,
+                "std": 0.0
+              },
+              "arrival_time": {
+                "count": 6100,
+                "min": 1771918626.9965436,
+                "max": 1771918687.1790333,
+                "mean": 1771918657.0805988,
+                "std": 0.0
+              },
+              "SNRa": {
+                "count": 6100,
+                "min": 0.0,
+                "max": 27.318186177777804,
+                "mean": 15.783755264659085,
+                "std": 5.105062888496786
+              },
+              "n": {
+                "count": 6100,
+                "min": 0.0,
+                "max": 1.0,
+                "mean": 0.31699295053537496,
+                "std": 0.1687267082250194
+              }
+            },
+            "transition_stats": {
+              "rows": 6100,
+              "observed_ratio": 1.0,
+              "missing_ratio": 0.0,
+              "state_transition_count": 0,
+              "blackout_ratio": 0.0,
+              "blackout_transition_count": 0
+            },
+            "path": "acoustic.csv"
+          }
+        }
+      }
+    ]
+  },
+  "precision_audit": {
+    "good_scenario_mean_pos_sigma_m": {
+      "gps": 2.1000941527263732,
+      "radar": 7.775728973063603,
+      "fiveg": 11.53912800591325,
+      "tdoa": 16.17551737359176,
+      "acoustic": 29.251503236865403
+    },
+    "desired_order": [
+      "gps",
+      "radar",
+      "fiveg",
+      "tdoa",
+      "acoustic"
+    ],
+    "order_pass": true
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "confidence": {
+    "mode": "sigmoid",
+    "alpha": 0.62,
+    "sigmoid_k": 6.0,
+    "sigmoid_b": 0.60
+  },
+  "modalities": {
+    "gps": {
+      "alpha": 0.76,
+      "metrics": {
+        "RTK": {
+          "mapping": {
+            "FIX": 1.0,
+            "FLOAT": 0.75,
+            "NONE": 0.25
+          }
+        }
+      }
+    },
+    "radar": {
+      "alpha": 0.70
+    },
+    "fiveg": {
+      "alpha": 0.64
+    },
+    "tdoa": {
+      "alpha": 0.68
+    },
+    "acoustic": {
+      "alpha": 0.62
+    }
+  }
+}

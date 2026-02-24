@@ -281,6 +281,277 @@
           }
         }
       }
+    },
+    {
+      "name": "scenario_ultra_precision_finetune_3000x120",
+      "override": {
+        "seed": 20260322,
+        "simulation": {
+          "uav_count": 3000,
+          "duration_s": 120.0
+        },
+        "scenario_mix": {
+          "A": 0.58,
+          "B": 0.27,
+          "C": 0.08,
+          "D": 0.05,
+          "E": 0.02
+        },
+        "scenario_duration_s": {
+          "A": [
+            10.0,
+            30.0
+          ],
+          "B": [
+            8.0,
+            20.0
+          ],
+          "C": [
+            3.0,
+            10.0
+          ],
+          "D": [
+            2.0,
+            6.0
+          ],
+          "E": [
+            3.0,
+            10.0
+          ]
+        },
+        "modality_error_scale": {
+          "gps": 0.36,
+          "radar": 0.54,
+          "fiveg": 0.68,
+          "tdoa": 0.86,
+          "acoustic": 1.22
+        },
+        "modalities": {
+          "gps": {
+            "time_jitter_s": 0.006,
+            "arrival_jitter_s": 0.008,
+            "reorder_window": 4
+          },
+          "radar": {
+            "time_jitter_s": 0.015,
+            "arrival_jitter_s": 0.018,
+            "reorder_window": 6
+          },
+          "fiveg": {
+            "time_jitter_s": 0.005,
+            "arrival_jitter_s": 0.030,
+            "reorder_window": 10
+          },
+          "tdoa": {
+            "time_jitter_s": 0.020,
+            "arrival_jitter_s": 0.020,
+            "reorder_window": 5
+          },
+          "acoustic": {
+            "time_jitter_s": 0.020,
+            "arrival_jitter_s": 0.025,
+            "reorder_window": 5
+          }
+        },
+        "drift": {
+          "enabled": true,
+          "start_prob": {
+            "C": 0.02,
+            "E": 0.05
+          },
+          "duration_s": [
+            3.0,
+            10.0
+          ],
+          "bias_mps": 0.12,
+          "rw_sigma_m": 0.25,
+          "decay": 0.97
+        },
+        "environment": {
+          "interference_events": [
+            {
+              "start_s": 22.0,
+              "end_s": 32.0,
+              "modalities": [
+                "fiveg",
+                "tdoa"
+              ],
+              "level": 0.22
+            },
+            {
+              "start_s": 58.0,
+              "end_s": 66.0,
+              "modalities": [
+                "gps",
+                "radar"
+              ],
+              "level": 0.12
+            },
+            {
+              "start_s": 88.0,
+              "end_s": 100.0,
+              "modalities": [
+                "acoustic",
+                "fiveg"
+              ],
+              "level": 0.28
+            }
+          ]
+        },
+        "missing_control": {
+          "global_scale": 0.45,
+          "global_bias": 0.0,
+          "scenario_scale": {
+            "A": 0.60,
+            "B": 0.80,
+            "C": 1.00,
+            "D": 1.15,
+            "E": 1.35
+          },
+          "modality_scale": {
+            "gps": 0.75,
+            "radar": 0.85,
+            "fiveg": 0.95,
+            "tdoa": 1.05,
+            "acoustic": 1.15
+          },
+          "modality_bias": {
+            "gps": 0.0,
+            "radar": 0.0,
+            "fiveg": 0.005,
+            "tdoa": 0.008,
+            "acoustic": 0.012
+          }
+        }
+      }
+    },
+    {
+      "name": "scenario_ultra_precision_eval_100x60",
+      "override": {
+        "seed": 20260323,
+        "output_dir": "./dataset/test-datasets/scenario_ultra_precision_eval_100x60",
+        "simulation": {
+          "uav_count": 100,
+          "duration_s": 60.0
+        },
+        "scenario_mix": {
+          "A": 0.62,
+          "B": 0.26,
+          "C": 0.07,
+          "D": 0.03,
+          "E": 0.02
+        },
+        "scenario_duration_s": {
+          "A": [
+            6.0,
+            16.0
+          ],
+          "B": [
+            5.0,
+            12.0
+          ],
+          "C": [
+            2.0,
+            8.0
+          ],
+          "D": [
+            2.0,
+            5.0
+          ],
+          "E": [
+            2.0,
+            8.0
+          ]
+        },
+        "modality_error_scale": {
+          "gps": 0.36,
+          "radar": 0.54,
+          "fiveg": 0.68,
+          "tdoa": 0.86,
+          "acoustic": 1.22
+        },
+        "modalities": {
+          "gps": {
+            "time_jitter_s": 0.006,
+            "arrival_jitter_s": 0.008,
+            "reorder_window": 4
+          },
+          "radar": {
+            "time_jitter_s": 0.015,
+            "arrival_jitter_s": 0.018,
+            "reorder_window": 6
+          },
+          "fiveg": {
+            "time_jitter_s": 0.005,
+            "arrival_jitter_s": 0.030,
+            "reorder_window": 10
+          },
+          "tdoa": {
+            "time_jitter_s": 0.020,
+            "arrival_jitter_s": 0.020,
+            "reorder_window": 5
+          },
+          "acoustic": {
+            "time_jitter_s": 0.020,
+            "arrival_jitter_s": 0.025,
+            "reorder_window": 5
+          }
+        },
+        "drift": {
+          "enabled": true,
+          "start_prob": {
+            "C": 0.015,
+            "E": 0.04
+          },
+          "duration_s": [
+            2.0,
+            8.0
+          ],
+          "bias_mps": 0.10,
+          "rw_sigma_m": 0.20,
+          "decay": 0.97
+        },
+        "environment": {
+          "interference_events": [
+            {
+              "start_s": 15.0,
+              "end_s": 22.0,
+              "modalities": [
+                "fiveg",
+                "tdoa"
+              ],
+              "level": 0.18
+            },
+            {
+              "start_s": 34.0,
+              "end_s": 40.0,
+              "modalities": [
+                "gps",
+                "radar"
+              ],
+              "level": 0.10
+            },
+            {
+              "start_s": 46.0,
+              "end_s": 54.0,
+              "modalities": [
+                "acoustic",
+                "fiveg"
+              ],
+              "level": 0.22
+            }
+          ]
+        },
+        "missing_control": {
+          "force_available_modalities": [
+            "gps",
+            "radar",
+            "fiveg",
+            "tdoa",
+            "acoustic"
+          ]
+        }
+      }
     }
   ]
 }

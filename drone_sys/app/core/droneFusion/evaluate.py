@@ -2,9 +2,11 @@ import os
 from typing import Dict, Sequence
 
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator
 import numpy as np
 import pandas as pd
 import torch
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  # register 3D projection
 
 import inference as inf
 
@@ -14,28 +16,37 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 # CONFIG
 # ==============================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_ROOT = r"../datasetBuilder/dataset-processed/test-datasets/scenario_multi_source_100x60/"
-MODEL_PATH = os.path.join(BASE_DIR, "./model_result/graph_fusion_model_v2.6.pt")
-NORM_PATH = os.path.join(BASE_DIR, "./model_result/graph_norm_v2.pth")
+DATA_ROOT = r"../datasetBuilder/dataset-processed/test-datasets/scenario_eval_high_missing_mixed_100x60/"
+MODEL_PATH = os.path.join(BASE_DIR, "./model_result/graph_fusion_model_v2.8.pt")
+NORM_PATH = os.path.join(BASE_DIR, "./model_result/graph_norm_v2.8.pth")
 DEVICE = inf.DEVICE
 
-OUTPUT_DIR = os.path.join(BASE_DIR, "eval_results_v2.6_multi")
+OUTPUT_DIR = os.path.join(BASE_DIR, "eval_results_v2.8_high_missing")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 SAVE_FIG = True
 MAX_UAVS = 20  # 0 means no limit
-EVAL_STRIDE_OVERRIDE = None  # int or None
+EVAL_STRIDE_OVERRIDE = 1  # int or None
 
 # Boundary blend (same strategy as inference)
-MERGE_EDGE_TAPER_MIN = 0.25
-WARMUP_POINTS = 20
-WARMUP_MIN_COVERAGE = 3.0
-TAIL_POINTS = 20
+MERGE_EDGE_TAPER_MIN = 0.12
+WARMUP_POINTS = 28
+WARMUP_MIN_COVERAGE = 5.0
+TAIL_POINTS = 40
 
 # Advanced metrics
 RPE_HORIZONS = (1, 5, 10)
 OUTLIER_THRESHOLDS_M = (20.0, 50.0, 100.0, 200.0)
 BOUNDARY_K = 20
+
+# 3D trajectory plot settings (fixed Z-axis ticks for readability)
+TRAJ3D_Z_TICK_STEP_M = 10.0
+TRAJ3D_Z_MARGIN_M = 5.0
+
+# OSPA (multi-target set metric) settings
+OSPA_ENABLE = True
+OSPA_P = 2
+OSPA_CUTOFFS_M = (20.0, 50.0)
 
 
 # ==============================================================
@@ -47,10 +58,11 @@ def _nan() -> float:
 
 def calc_err(pred, gt):
     if pred is None or gt is None or len(pred) == 0:
-        return {"RMSE": _nan(), "MAE": _nan(), "MEDAE": _nan(), "P90": _nan(), "P95": _nan(), "MAX": _nan()}
+        return {"MSE": _nan(), "RMSE": _nan(), "MAE": _nan(), "MEDAE": _nan(), "P90": _nan(), "P95": _nan(), "MAX": _nan()}
     diff = np.asarray(pred, dtype=float) - np.asarray(gt, dtype=float)
     dist = np.linalg.norm(diff, axis=1)
     return {
+        "MSE": float(np.mean(dist**2)),
         "RMSE": float(np.sqrt(np.mean(dist**2))),
         "MAE": float(np.mean(dist)),
         "MEDAE": float(np.median(dist)),
@@ -62,9 +74,10 @@ def calc_err(pred, gt):
 
 def calc_z_err(pred_z, gt_z):
     if pred_z is None or gt_z is None or len(pred_z) == 0:
-        return {"RMSE": _nan(), "MAE": _nan(), "MEDAE": _nan(), "P90": _nan(), "P95": _nan(), "MAX": _nan()}
+        return {"MSE": _nan(), "RMSE": _nan(), "MAE": _nan(), "MEDAE": _nan(), "P90": _nan(), "P95": _nan(), "MAX": _nan()}
     diff = np.abs(np.asarray(pred_z, dtype=float) - np.asarray(gt_z, dtype=float))
     return {
+        "MSE": float(np.mean(diff**2)),
         "RMSE": float(np.sqrt(np.mean(diff**2))),
         "MAE": float(np.mean(diff)),
         "MEDAE": float(np.median(diff)),
@@ -72,6 +85,20 @@ def calc_z_err(pred_z, gt_z):
         "P95": float(np.percentile(diff, 95)),
         "MAX": float(np.max(diff)),
     }
+
+
+def _ospa_console_summary(batch_name: str, ospa_row: Dict[str, float]) -> str:
+    parts = [f"[OSPA] {batch_name}"]
+    p = int(OSPA_P)
+    for c in OSPA_CUTOFFS_M:
+        c_key = str(int(round(float(c))))
+        xy_key = f"ospa_xy_p{p}_c{c_key}_mean"
+        d3_key = f"ospa3d_p{p}_c{c_key}_mean"
+        if xy_key in ospa_row and np.isfinite(float(ospa_row[xy_key])):
+            parts.append(f"XY@{c_key}={float(ospa_row[xy_key]):.3f}")
+        if d3_key in ospa_row and np.isfinite(float(ospa_row[d3_key])):
+            parts.append(f"3D@{c_key}={float(ospa_row[d3_key]):.3f}")
+    return " | ".join(parts)
 
 
 def _rpe_rmse(pred: np.ndarray, gt: np.ndarray, horizon: int) -> float:
@@ -169,6 +196,187 @@ def _jerk_mean(traj_xyz: np.ndarray) -> float:
     return float(np.mean(np.linalg.norm(j, axis=1)))
 
 
+def _hungarian_min_cost_rect(cost: np.ndarray) -> float:
+    """
+    Exact minimum-cost assignment for a rectangular cost matrix using a
+    Hungarian-style O(n^3) algorithm.
+    Returns min sum over assigning each row to a unique column.
+    """
+    c = np.asarray(cost, dtype=float)
+    if c.ndim != 2:
+        raise ValueError("cost must be 2D")
+    m, n = c.shape
+    if m == 0:
+        return 0.0
+    if n == 0:
+        return float(np.inf)
+    if m > n:
+        # Ensure rows <= cols; transposition preserves optimal total cost.
+        c = c.T
+        m, n = c.shape
+
+    u = np.zeros(m + 1, dtype=float)
+    v = np.zeros(n + 1, dtype=float)
+    p = np.zeros(n + 1, dtype=np.int64)
+    way = np.zeros(n + 1, dtype=np.int64)
+
+    for i in range(1, m + 1):
+        p[0] = i
+        j0 = 0
+        minv = np.full(n + 1, np.inf, dtype=float)
+        used = np.zeros(n + 1, dtype=bool)
+        while True:
+            used[j0] = True
+            i0 = int(p[j0])
+            delta = np.inf
+            j1 = 0
+            for j in range(1, n + 1):
+                if used[j]:
+                    continue
+                cur = c[i0 - 1, j - 1] - u[i0] - v[j]
+                if cur < minv[j]:
+                    minv[j] = cur
+                    way[j] = j0
+                if minv[j] < delta:
+                    delta = minv[j]
+                    j1 = j
+            for j in range(0, n + 1):
+                if used[j]:
+                    u[p[j]] += delta
+                    v[j] -= delta
+                else:
+                    minv[j] -= delta
+            j0 = j1
+            if p[j0] == 0:
+                break
+        while True:
+            j1 = int(way[j0])
+            p[j0] = p[j1]
+            j0 = j1
+            if j0 == 0:
+                break
+
+    row_to_col = np.full(m, -1, dtype=np.int64)
+    for j in range(1, n + 1):
+        if p[j] > 0:
+            row_to_col[int(p[j]) - 1] = j - 1
+    if np.any(row_to_col < 0):
+        return float(np.inf)
+    return float(c[np.arange(m), row_to_col].sum())
+
+
+def ospa_distance(pred_set: np.ndarray, gt_set: np.ndarray, p: int = 2, cutoff_m: float = 20.0) -> float:
+    """
+    OSPA distance between two finite sets of points (XY or XYZ rows).
+    """
+    p = max(int(p), 1)
+    c = max(float(cutoff_m), 1e-6)
+
+    x = np.asarray(pred_set, dtype=float)
+    y = np.asarray(gt_set, dtype=float)
+
+    if x.ndim != 2:
+        x = x.reshape((-1, x.shape[-1] if x.ndim > 0 else 1))
+    if y.ndim != 2:
+        y = y.reshape((-1, y.shape[-1] if y.ndim > 0 else 1))
+
+    if x.shape[0] == 0 and y.shape[0] == 0:
+        return 0.0
+    if x.shape[0] == 0 or y.shape[0] == 0:
+        return c
+
+    m = int(x.shape[0])
+    n = int(y.shape[0])
+    if x.shape[1] != y.shape[1]:
+        raise ValueError("pred_set and gt_set must have same point dimension")
+
+    if m <= n:
+        a, b = x, y
+        denom = n
+    else:
+        a, b = y, x
+        m, n = n, m
+        denom = n
+
+    dmat = np.linalg.norm(a[:, None, :] - b[None, :, :], axis=-1)
+    dmat = np.minimum(dmat, c) ** p
+    assign_cost = _hungarian_min_cost_rect(dmat)
+    total = (assign_cost + (n - m) * (c**p)) / max(denom, 1)
+    return float(total ** (1.0 / p))
+
+
+def _compute_batch_ospa_from_tracks(
+    batch_name: str,
+    tracks: Sequence[Dict],
+    p: int = 2,
+    cutoffs_m: Sequence[float] = (20.0, 50.0),
+) -> Dict[str, float]:
+    if len(tracks) == 0:
+        return {"batch": batch_name, "ospa_frame_count": 0, "ospa_uav_count": 0}
+
+    pred_map: Dict[float, list] = {}
+    gt_map: Dict[float, list] = {}
+
+    for tr in tracks:
+        ts = np.asarray(tr.get("timestamps", []), dtype=float)
+        pred = np.asarray(tr.get("pred_enu_batch", []), dtype=float)
+        gt = np.asarray(tr.get("gt_enu_batch", []), dtype=float)
+        if ts.ndim != 1 or pred.ndim != 2 or gt.ndim != 2:
+            continue
+        n = min(len(ts), len(pred), len(gt))
+        if n <= 0:
+            continue
+        ts = ts[:n]
+        pred = pred[:n]
+        gt = gt[:n]
+        for i in range(n):
+            t = float(ts[i])
+            pv = pred[i]
+            gv = gt[i]
+            if np.all(np.isfinite(pv)):
+                pred_map.setdefault(t, []).append(pv)
+            if np.all(np.isfinite(gv)):
+                gt_map.setdefault(t, []).append(gv)
+
+    frame_keys = sorted(set(pred_map.keys()) | set(gt_map.keys()))
+    if len(frame_keys) == 0:
+        return {"batch": batch_name, "ospa_frame_count": 0, "ospa_uav_count": len(tracks)}
+
+    frame_rows = []
+    for t in frame_keys:
+        pred_pts = np.asarray(pred_map.get(t, []), dtype=float)
+        gt_pts = np.asarray(gt_map.get(t, []), dtype=float)
+        if pred_pts.ndim == 1:
+            pred_pts = pred_pts.reshape((-1, 3)) if pred_pts.size > 0 else np.zeros((0, 3), dtype=float)
+        if gt_pts.ndim == 1:
+            gt_pts = gt_pts.reshape((-1, 3)) if gt_pts.size > 0 else np.zeros((0, 3), dtype=float)
+        row = {
+            "timestamp": t,
+            "pred_cardinality": int(pred_pts.shape[0]),
+            "gt_cardinality": int(gt_pts.shape[0]),
+        }
+        for c in cutoffs_m:
+            c_key = str(int(round(float(c))))
+            row[f"ospa3d_p{int(p)}_c{c_key}"] = ospa_distance(pred_pts, gt_pts, p=p, cutoff_m=float(c))
+            row[f"ospa_xy_p{int(p)}_c{c_key}"] = ospa_distance(pred_pts[:, :2], gt_pts[:, :2], p=p, cutoff_m=float(c))
+        frame_rows.append(row)
+
+    df_f = pd.DataFrame(frame_rows)
+    out = {
+        "batch": batch_name,
+        "ospa_frame_count": int(len(df_f)),
+        "ospa_uav_count": int(len(tracks)),
+    }
+    metric_cols = [c for c in df_f.columns if c.startswith("ospa")]
+    for c in metric_cols:
+        vals = pd.to_numeric(df_f[c], errors="coerce").to_numpy(dtype=float)
+        vals = vals[np.isfinite(vals)]
+        out[f"{c}_mean"] = float(np.mean(vals)) if vals.size > 0 else np.nan
+        out[f"{c}_median"] = float(np.median(vals)) if vals.size > 0 else np.nan
+        out[f"{c}_p95"] = float(np.percentile(vals, 95)) if vals.size > 0 else np.nan
+    return out
+
+
 def compute_advanced_metrics(pred: np.ndarray, gt: np.ndarray) -> Dict[str, float]:
     diff = pred - gt
     dist3 = np.linalg.norm(diff, axis=1)
@@ -224,6 +432,34 @@ def plot_modality_bar(uav, batch_name, fusion, mod_errs):
 def plot_traj_and_error(uav, batch_name, gt, pred):
     dist = np.linalg.norm(pred - gt, axis=1)
 
+    fig = plt.figure(figsize=(7, 6))
+    ax = fig.add_subplot(111, projection="3d")
+    ax.plot(gt[:, 0], gt[:, 1], gt[:, 2], "k-", label="Truth")
+    ax.plot(pred[:, 0], pred[:, 1], pred[:, 2], "r--", label="Fusion")
+    ax.set_xlabel("East (m)")
+    ax.set_ylabel("North (m)")
+    ax.set_zlabel("Up (m)")
+    ax.set_title(f"Trajectory XYZ - {batch_name} - {uav}")
+
+    # Use fixed Z tick spacing (not auto ticks) and snap limits to that grid.
+    z_all = np.concatenate([gt[:, 2], pred[:, 2]], axis=0).astype(float)
+    z_all = z_all[np.isfinite(z_all)]
+    if z_all.size > 0:
+        zmin = float(np.min(z_all)) - float(TRAJ3D_Z_MARGIN_M)
+        zmax = float(np.max(z_all)) + float(TRAJ3D_Z_MARGIN_M)
+        step = max(float(TRAJ3D_Z_TICK_STEP_M), 1e-6)
+        zmin = np.floor(zmin / step) * step
+        zmax = np.ceil(zmax / step) * step
+        if zmax <= zmin:
+            zmax = zmin + step
+        ax.set_zlim(zmin, zmax)
+        ax.zaxis.set_major_locator(MultipleLocator(base=step))
+
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(OUTPUT_DIR, f"{batch_name}_{uav}_traj_xyz.png"))
+    plt.close()
+
     plt.figure(figsize=(6, 5))
     plt.plot(gt[:, 0], gt[:, 1], "k-", label="Truth")
     plt.plot(pred[:, 0], pred[:, 1], "r--", label="Fusion")
@@ -253,7 +489,7 @@ def modality_metrics(df_truth_u, df_mod_u, lat0, lon0, alt0, align_tolerance_s):
 # ==============================================================
 # EVALUATION
 # ==============================================================
-def evaluate_uav_advanced(model, batch_dir, uav, x_mean, x_std, y_mean, y_std, runtime):
+def evaluate_uav_advanced(model, batch_dir, uav, x_mean, x_std, y_mean, y_std, runtime, batch_origin_llh=None):
     truth = pd.read_csv(os.path.join(batch_dir, "truth.csv"))
     id_col = inf._detect_id_col(truth)
     if id_col is None:
@@ -404,6 +640,43 @@ def evaluate_uav_advanced(model, batch_dir, uav, x_mean, x_std, y_mean, y_std, r
         else np.nan
     )
 
+    ospa_track = None
+    if batch_origin_llh is not None:
+        try:
+            b_lat0, b_lon0, b_alt0 = [float(v) for v in batch_origin_llh]
+            pred_lat, pred_lon, pred_alt = inf.enu_to_llh(
+                fusion_enu[:, 0],
+                fusion_enu[:, 1],
+                fusion_enu[:, 2],
+                float(lat0),
+                float(lon0),
+                float(alt0),
+            )
+            pred_be, pred_bn, pred_bu = inf.latlon_to_enu(
+                pred_lat,
+                pred_lon,
+                pred_alt,
+                b_lat0,
+                b_lon0,
+                b_alt0,
+            )
+            gt_be, gt_bn, gt_bu = inf.latlon_to_enu(
+                df_t["lat"].to_numpy(dtype=float),
+                df_t["lon"].to_numpy(dtype=float),
+                df_t["alt"].to_numpy(dtype=float),
+                b_lat0,
+                b_lon0,
+                b_alt0,
+            )
+            ospa_track = {
+                "uav": str(uav),
+                "timestamps": pd.to_numeric(df_t["timestamp"], errors="coerce").to_numpy(dtype=float),
+                "pred_enu_batch": np.stack([pred_be, pred_bn, pred_bu], axis=1).astype(np.float32),
+                "gt_enu_batch": np.stack([gt_be, gt_bn, gt_bu], axis=1).astype(np.float32),
+            }
+        except Exception:
+            ospa_track = None
+
     if SAVE_FIG:
         batch_name = os.path.basename(batch_dir)
         plot_modality_bar(uav=uav, batch_name=batch_name, fusion=fusion_xyz, mod_errs=mod_errs)
@@ -415,6 +688,7 @@ def evaluate_uav_advanced(model, batch_dir, uav, x_mean, x_std, y_mean, y_std, r
         "z_err": z_err,
         "advanced": adv,
         "mod_errs": mod_errs,
+        "ospa_track": ospa_track,
         "diag": {
             "num_points": int(len(gt)),
             "num_windows": int(len(windows)),
@@ -456,6 +730,7 @@ def main():
         )
 
     rows = []
+    ospa_batch_rows = []
     cnt = 0
     for batch in sorted(os.listdir(DATA_ROOT)):
         batch_dir = os.path.join(DATA_ROOT, batch)
@@ -469,6 +744,12 @@ def main():
         id_col = inf._detect_id_col(truth)
         if id_col is None:
             continue
+        batch_origin = None
+        if len(truth) > 0 and all(c in truth.columns for c in ["lat", "lon", "alt"]):
+            first_row = truth.iloc[0]
+            batch_origin = (float(first_row["lat"]), float(first_row["lon"]), float(first_row["alt"]))
+        ospa_tracks = []
+        batch_total_uavs = int(truth[id_col].dropna().nunique())
 
         for uav in truth[id_col].dropna().unique():
             if MAX_UAVS > 0 and cnt >= MAX_UAVS:
@@ -483,6 +764,7 @@ def main():
                 y_mean=y_mean,
                 y_std=y_std,
                 runtime=runtime,
+                batch_origin_llh=batch_origin,
             )
             if out is None:
                 continue
@@ -491,20 +773,26 @@ def main():
             adv = out["advanced"]
             print(
                 f"[Eval] {batch} - {uav} | RMSE3D={fusion_xyz['RMSE']:.3f} | "
+                f"MSE3D={fusion_xyz.get('MSE', np.nan):.3f} | "
                 f"P95={fusion_xyz['P95']:.3f} | FDE_XY={adv.get('fde_xy', np.nan):.3f} | "
                 f"DTW_XY={adv.get('dtw_xy', np.nan):.3f}"
             )
+            if isinstance(out.get("ospa_track"), dict):
+                ospa_tracks.append(out["ospa_track"])
 
             row = {
                 "uav": uav,
                 "batch": batch,
+                "fusion_mse_3d": out["fusion_xyz"]["MSE"],
                 "fusion_rmse_3d": out["fusion_xyz"]["RMSE"],
                 "fusion_mae_3d": out["fusion_xyz"]["MAE"],
                 "fusion_medae_3d": out["fusion_xyz"]["MEDAE"],
                 "fusion_p90_3d": out["fusion_xyz"]["P90"],
                 "fusion_p95_3d": out["fusion_xyz"]["P95"],
                 "fusion_max_3d": out["fusion_xyz"]["MAX"],
+                "fusion_mse_xy": out["fusion_xy"]["MSE"],
                 "fusion_rmse_xy": out["fusion_xy"]["RMSE"],
+                "fusion_mse_z": out["z_err"]["MSE"],
                 "fusion_rmse_z": out["z_err"]["RMSE"],
                 "fusion_p95_z": out["z_err"]["P95"],
                 **out["advanced"],
@@ -512,13 +800,37 @@ def main():
             }
             for m in runtime["modalities"]:
                 key = m.replace("5g_a", "fiveg")
+                row[f"{key}_mse"] = out["mod_errs"].get(m, {}).get("MSE", np.nan)
                 row[f"{key}_rmse"] = out["mod_errs"].get(m, {}).get("RMSE", np.nan)
                 row[f"{key}_p95"] = out["mod_errs"].get(m, {}).get("P95", np.nan)
             rows.append(row)
             cnt += 1
 
         if MAX_UAVS > 0 and cnt >= MAX_UAVS:
+            if OSPA_ENABLE and len(ospa_tracks) > 0:
+                ospa_row = _compute_batch_ospa_from_tracks(
+                    batch_name=batch,
+                    tracks=ospa_tracks,
+                    p=OSPA_P,
+                    cutoffs_m=OSPA_CUTOFFS_M,
+                )
+                ospa_row["batch_total_uavs"] = int(batch_total_uavs)
+                ospa_row["ospa_partial_uav_eval"] = float(len(ospa_tracks) < batch_total_uavs)
+                ospa_batch_rows.append(ospa_row)
+                print(_ospa_console_summary(batch, ospa_row))
             break
+
+        if OSPA_ENABLE and len(ospa_tracks) > 0:
+            ospa_row = _compute_batch_ospa_from_tracks(
+                batch_name=batch,
+                tracks=ospa_tracks,
+                p=OSPA_P,
+                cutoffs_m=OSPA_CUTOFFS_M,
+            )
+            ospa_row["batch_total_uavs"] = int(batch_total_uavs)
+            ospa_row["ospa_partial_uav_eval"] = float(len(ospa_tracks) < batch_total_uavs)
+            ospa_batch_rows.append(ospa_row)
+            print(_ospa_console_summary(batch, ospa_row))
 
     if len(rows) == 0:
         print("[Eval] no valid UAV samples")
@@ -531,7 +843,7 @@ def main():
     metric_cols = [
         c
         for c in df.columns
-        if any(k in c for k in ["rmse", "mae", "medae", "p90", "p95", "max", "ade", "fde", "dtw", "frechet", "hausdorff", "rpe", "outlier", "jerk", "cross", "along"])
+        if any(k in c for k in ["mse", "rmse", "mae", "medae", "p90", "p95", "max", "ade", "fde", "dtw", "frechet", "hausdorff", "rpe", "outlier", "jerk", "cross", "along"])
     ]
     summary = df[metric_cols].agg(["mean", "median", "std"])
     summary_path = os.path.join(OUTPUT_DIR, "fusion_eval_advanced_summary.csv")
@@ -541,10 +853,26 @@ def main():
     worst_path = os.path.join(OUTPUT_DIR, "fusion_eval_worst_cases.csv")
     worst.to_csv(worst_path, index=False)
 
+    ospa_batch_path = None
+    ospa_summary_path = None
+    if OSPA_ENABLE and len(ospa_batch_rows) > 0:
+        df_ospa = pd.DataFrame(ospa_batch_rows)
+        ospa_batch_path = os.path.join(OUTPUT_DIR, "fusion_eval_ospa_batch.csv")
+        df_ospa.to_csv(ospa_batch_path, index=False)
+        ospa_metric_cols = [c for c in df_ospa.columns if c.startswith("ospa") and "_c" in c]
+        if len(ospa_metric_cols) > 0:
+            ospa_summary = df_ospa[ospa_metric_cols].agg(["mean", "median", "std"])
+            ospa_summary_path = os.path.join(OUTPUT_DIR, "fusion_eval_ospa_summary.csv")
+            ospa_summary.to_csv(ospa_summary_path)
+
     print("\n[Done] advanced evaluation finished")
     print(f"[Save] {csv_path}")
     print(f"[Save] {summary_path}")
     print(f"[Save] {worst_path}")
+    if ospa_batch_path:
+        print(f"[Save] {ospa_batch_path}")
+    if ospa_summary_path:
+        print(f"[Save] {ospa_summary_path}")
 
 
 if __name__ == "__main__":

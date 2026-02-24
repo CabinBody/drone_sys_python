@@ -15,8 +15,8 @@ router = APIRouter(tags=["fusion"])
 
 _REQ_MODALITIES = ["gps", "radar", "fiveg", "tdoa", "acoustic"]
 _DRONE_FUSION_DIR = Path(__file__).resolve().parents[1] / "core" / "droneFusion"
-_MODEL_PATH = _DRONE_FUSION_DIR / "model_result" / "graph_fusion_model_v2.6.pt"
-_NORM_PATH = _DRONE_FUSION_DIR / "model_result" / "graph_norm_v2.pth"
+_MODEL_PATH = _DRONE_FUSION_DIR / "model_result" / "graph_fusion_model_v2.8.pt"
+_NORM_PATH = _DRONE_FUSION_DIR / "model_result" / "graph_norm_v2.8.pth"
 _QUALITY_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "gps": {"Nsat": 0.0, "DOP": 99.0, "RTK": "NONE"},
     "radar": {"E": 0.0, "Ptrk": 0.0},

@@ -20,13 +20,13 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 @dataclass
 class DataConfig:
-    data_dir: str = os.path.normpath(os.path.join(BASE_DIR, "../datasetBuilder/dataset-processed/train-datasets-finetuning/"))
+    data_dir: str = os.path.normpath(os.path.join(BASE_DIR, "../datasetBuilder/dataset-processed/train-datasets-high-precision-finetuning/"))
     window_size: int = 20
     stride: int = 8
     truth_dt_s: float = 1.0
     align_tolerance_s: float = 0.55
     modalities: list = field(default_factory=lambda: list(MODALITIES))
-    norm_stats_path: str = os.path.normpath(os.path.join(BASE_DIR, "model_result/graph_norm_v2.pth"))
+    norm_stats_path: str = os.path.normpath(os.path.join(BASE_DIR, "model_result/graph_norm_v2.8.pth"))
     rebuild_norm_stats: bool = False
     max_batches: int = 0  # 0 means no limit
     batch_prefix: str = "batch"
@@ -36,7 +36,7 @@ class DataConfig:
     dataset_build_use_multiprocessing: bool = True
     dataset_use_sample_cache: bool = True
     dataset_rebuild_sample_cache: bool = False
-    dataset_sample_cache_dir: str = ".cache/graph_samples_v2.6/"
+    dataset_sample_cache_dir: str = ".cache/graph_samples_v2.8/"
 
 
 @dataclass
@@ -45,16 +45,16 @@ class ModelConfig:
     num_heads: int = 4
     num_layers: int = 3
     dim_ff: int = 256
-    dropout: float = 0.15
+    dropout: float = 0.10
     knn_k: int = 6
 
 
 @dataclass
 class TrainConfig:
     batch_size: int = 16
-    epochs: int = 1
-    lr: float = 4e-5
-    weight_decay: float = 5e-5
+    epochs: int = 2
+    lr: float = 2e-5
+    weight_decay: float = 3e-5
     grad_clip: float = 1.0
     num_workers: int = 2
     loader_persistent_workers: bool = False
@@ -63,30 +63,76 @@ class TrainConfig:
     pin_memory: bool = True
     log_every_step: bool = False
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
-    model_path: str = os.path.normpath(os.path.join(BASE_DIR, "model_result/graph_fusion_model_v2.6.pt"))
-    resume_model_path: str = os.path.normpath(os.path.join(BASE_DIR, "model_result/graph_fusion_model_v2.5.pt"))
+    model_path: str = os.path.normpath(os.path.join(BASE_DIR, "model_result/graph_fusion_model_v2.8.pt"))
+    resume_model_path: str = os.path.normpath(os.path.join(BASE_DIR, "model_result/graph_fusion_model_v2.7.pt"))
     resume_if_model_exists: bool = False
     resume_strict: bool = False
     shuffle_units_each_epoch: bool = True
     unit_shuffle_seed: int = 20260223
     use_coverage_weighted_loss: bool = True
-    loss_weight_full_alpha: float = 1.2
-    loss_weight_missing_alpha: float = 0.4
+    loss_weight_full_alpha: float = 0.6
+    loss_weight_missing_alpha: float = 0.2
     loss_weight_power: float = 2.0
-    loss_weight_transition_alpha: float = 0.6
+    loss_weight_transition_alpha: float = 0.25
     use_confidence_weight: bool = True
-    loss_weight_conf_alpha: float = 1.2
-    loss_weight_conf_power: float = 2.0
+    loss_weight_conf_alpha: float = 0.8
+    loss_weight_conf_power: float = 1.5
     loss_main: str = "huber"  # huber | mse
-    huber_beta: float = 1.0
-    loss_vel_alpha: float = 0.15
-    loss_acc_alpha: float = 0.08
-    loss_fde_alpha: float = 0.30
+    huber_beta: float = 0.5
+    loss_vel_alpha: float = 0.20
+    loss_acc_alpha: float = 0.12
+    loss_fde_alpha: float = 0.40
+    # Explicit local switch for high-precision fine-tuning preset.
+    use_high_precision_finetune_preset: bool = True
 
 
 DATA_CFG = DataConfig()
 MODEL_CFG = ModelConfig()
 TRAIN_CFG = TrainConfig()
+
+def _apply_high_precision_finetune_preset(data_cfg: DataConfig, model_cfg: ModelConfig, train_cfg: TrainConfig):
+    data_cfg.data_dir = os.path.normpath(
+        os.path.join(BASE_DIR, "../datasetBuilder/dataset-processed/train-datasets-high-precision-finetuning/")
+    )
+    data_cfg.norm_stats_path = DATA_CFG.norm_stats_path
+    data_cfg.rebuild_norm_stats = True
+    data_cfg.dataset_rebuild_sample_cache = True
+
+    # Cleaner data benefits from a slightly lower regularization/dropout level.
+    model_cfg.dropout = 0.10
+
+    train_cfg.epochs = 2
+    train_cfg.lr = 1e-5
+    train_cfg.weight_decay = 3e-5
+    train_cfg.model_path = TRAIN_CFG.model_path
+    train_cfg.resume_model_path = TRAIN_CFG.resume_model_path
+    train_cfg.resume_if_model_exists = False
+    train_cfg.resume_strict = False
+
+    train_cfg.loss_main = "huber"
+    train_cfg.huber_beta = 0.5
+    train_cfg.loss_vel_alpha = 0.20
+    train_cfg.loss_acc_alpha = 0.12
+    train_cfg.loss_fde_alpha = 0.40
+
+    train_cfg.use_coverage_weighted_loss = True
+    train_cfg.loss_weight_full_alpha = 0.6
+    train_cfg.loss_weight_missing_alpha = 0.2
+    train_cfg.loss_weight_transition_alpha = 0.25
+    train_cfg.loss_weight_power = 2.0
+    train_cfg.use_confidence_weight = True
+    train_cfg.loss_weight_conf_alpha = 0.8
+    train_cfg.loss_weight_conf_power = 1.5
+
+
+def _apply_runtime_preset(data_cfg: DataConfig, model_cfg: ModelConfig, train_cfg: TrainConfig) -> str:
+    if bool(getattr(train_cfg, "use_high_precision_finetune_preset", False)):
+        _apply_high_precision_finetune_preset(data_cfg, model_cfg, train_cfg)
+        return "high_precision_finetune"
+    return ""
+
+
+ACTIVE_RUNTIME_PRESET = _apply_runtime_preset(DATA_CFG, MODEL_CFG, TRAIN_CFG)
 
 
 def _safe_torch_load(path: str):
@@ -425,6 +471,8 @@ def build_loader_for_unit(unit_dir: str, cfg: DataConfig, train_cfg: TrainConfig
 
 
 def main():
+    if ACTIVE_RUNTIME_PRESET:
+        print(f"[Preset] active runtime preset: {ACTIVE_RUNTIME_PRESET}")
     print("[Config] data:", asdict(DATA_CFG))
     print("[Config] model:", asdict(MODEL_CFG))
     print("[Config] train:", asdict(TRAIN_CFG))
