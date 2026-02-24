@@ -18,6 +18,8 @@ from drone_sys.app.core.datasetBuilder import generate_bluesky_dataset as gbd  #
 
 MODALITY_ORDER = ["gps", "radar", "fiveg", "tdoa", "acoustic"]
 POS_MODALITIES = ["gps", "radar", "fiveg", "tdoa"]
+# Edit this seed to generate a different reproducible demo trajectory / modality pattern.
+DEMO_SEED = 10000
 
 
 def _jsonable(v: Any):
@@ -385,8 +387,9 @@ def print_quality_snapshot(rows_by_mod: Dict[str, List[Dict[str, Any]]], idx: in
 
 def main():
     _, _, _, _, _, _, _, runtime = fusion_router._load_runtime_bundle()
-    T = int(runtime.get("window_size", 20))
-    seed = 42
+    window_size = int(runtime.get("window_size", 20))
+    T = max(window_size * 3, 60)
+    seed = int(DEMO_SEED)
     rng = np.random.default_rng(seed)
 
     cfg = gbd.default_config()
@@ -424,7 +427,7 @@ def main():
     print(
         f"[Demo] model={Path(runtime.get('router_model_path', '')).name} | "
         f"norm={Path(runtime.get('router_norm_path', '')).name} | "
-        f"window={T} | seed={seed}"
+        f"window={window_size} | demo_len={T} | seed={seed}"
     )
     print(f"[Demo] scenario tags: {''.join(tags.tolist())}")
     print_quality_snapshot(rows_by_mod, idx=0)

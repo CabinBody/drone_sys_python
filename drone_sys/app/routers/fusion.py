@@ -180,11 +180,11 @@ def _build_truth_rows(per_mod_rows: Dict[str, List[Dict[str, Any]]]) -> List[Dic
 def _build_raw_frames_from_packets(
     packets: List[Dict[str, Any]],
     req_uav_id: Optional[str],
-    expected_packets: Optional[int] = None,
+    min_packets: Optional[int] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, pd.DataFrame]]:
-    expect_n = int(expected_packets) if expected_packets is not None else 20
-    if len(packets) != expect_n:
-        raise HTTPException(status_code=400, detail=f"Expected exactly {expect_n} packets, got {len(packets)}")
+    min_n = int(min_packets) if min_packets is not None else 20
+    if len(packets) < min_n:
+        raise HTTPException(status_code=400, detail=f"Expected at least {min_n} packets, got {len(packets)}")
 
     per_mod_rows: Dict[str, List[Dict[str, Any]]] = {m: [] for m in _REQ_MODALITIES}
     current_uav_id = req_uav_id
@@ -475,20 +475,21 @@ def _run_model_inference(
 def run_fusion_http(payload: Any = Body(...)):
     """
     Input:
-    - list[window_size] of packets, each packet contains 5 modalities (gps/radar/fiveg/tdoa/acoustic)
-    - or object with data: list[window_size]
+    - list[>=window_size] of packets, each packet contains 5 modalities (gps/radar/fiveg/tdoa/acoustic)
+    - or object with data: list[>=window_size]
 
     Output:
     - list of {timestamp, lat, lon, alt}
+      (when length > window_size, the router uses multi-window merge inference, closer to evaluate.py)
     """
     packets, req_uav_id = _extract_packets(payload)
     try:
         _, _, _, _, _, _, _, runtime = _load_runtime_bundle()
-        expected_packets = int(runtime.get("window_size", 20))
+        min_packets = int(runtime.get("window_size", 20))
         truth_df, raw_frames = _build_raw_frames_from_packets(
             packets=packets,
             req_uav_id=req_uav_id,
-            expected_packets=expected_packets,
+            min_packets=min_packets,
         )
         cfg = tc.default_cfg()
         processed_mod_frames = _build_processed_modality_frames(raw_frames=raw_frames, cfg=cfg)
