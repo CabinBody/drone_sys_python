@@ -16,12 +16,12 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 # CONFIG
 # ==============================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_ROOT = r"../datasetBuilder/dataset-processed/test-datasets/scenario_eval_high_missing_mixed_100x60/"
+DATA_ROOT = r"../datasetBuilder/dataset-processed/test-datasets/scenario_ultra_precision_eval_100x60/"
 MODEL_PATH = os.path.join(BASE_DIR, "./model_result/graph_fusion_model_v2.8.pt")
 NORM_PATH = os.path.join(BASE_DIR, "./model_result/graph_norm_v2.8.pth")
 DEVICE = inf.DEVICE
 
-OUTPUT_DIR = os.path.join(BASE_DIR, "eval_results_v2.8_high_missing")
+OUTPUT_DIR = os.path.join(BASE_DIR, "eval_results_v2.8_ultra")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 SAVE_FIG = True
@@ -484,7 +484,37 @@ def plot_traj_and_error(uav, batch_name, gt, pred):
 
 def modality_metrics(df_truth_u, df_mod_u, lat0, lon0, alt0, align_tolerance_s):
     gt_m, obs_m = inf.modality_series_enu(df_truth_u, df_mod_u, lat0, lon0, alt0, align_tolerance_s)
-    return calc_err(obs_m, gt_m)
+    err3d = calc_err(obs_m, gt_m)
+    try:
+        obs_arr = np.asarray(obs_m, dtype=float)
+        gt_arr = np.asarray(gt_m, dtype=float)
+    except Exception:
+        obs_arr = np.zeros((0, 3), dtype=float)
+        gt_arr = np.zeros((0, 3), dtype=float)
+
+    if obs_arr.ndim != 2 or gt_arr.ndim != 2 or obs_arr.shape[0] == 0 or gt_arr.shape[0] == 0:
+        err_xy = {"RMSE": _nan()}
+        err_z = {"RMSE": _nan()}
+    else:
+        n = min(len(obs_arr), len(gt_arr))
+        obs_arr = obs_arr[:n]
+        gt_arr = gt_arr[:n]
+        if obs_arr.shape[1] >= 2 and gt_arr.shape[1] >= 2:
+            err_xy = calc_err(obs_arr[:, :2], gt_arr[:, :2])
+        else:
+            err_xy = {"RMSE": _nan()}
+        if obs_arr.shape[1] >= 3 and gt_arr.shape[1] >= 3:
+            err_z = calc_z_err(obs_arr[:, 2], gt_arr[:, 2])
+        else:
+            err_z = {"RMSE": _nan()}
+
+    # Keep existing keys (MSE/RMSE/MAE/P95...) as 3D metrics for compatibility,
+    # and add explicit aliases/components for CSV comparison.
+    out = dict(err3d)
+    out["MAE_3D"] = float(err3d.get("MAE", np.nan))
+    out["RMSE_XY"] = float(err_xy.get("RMSE", np.nan))
+    out["RMSE_Z"] = float(err_z.get("RMSE", np.nan))
+    return out
 
 # ==============================================================
 # EVALUATION
@@ -802,6 +832,9 @@ def main():
                 key = m.replace("5g_a", "fiveg")
                 row[f"{key}_mse"] = out["mod_errs"].get(m, {}).get("MSE", np.nan)
                 row[f"{key}_rmse"] = out["mod_errs"].get(m, {}).get("RMSE", np.nan)
+                row[f"{key}_mae_3d"] = out["mod_errs"].get(m, {}).get("MAE_3D", np.nan)
+                row[f"{key}_rmse_xy"] = out["mod_errs"].get(m, {}).get("RMSE_XY", np.nan)
+                row[f"{key}_rmse_z"] = out["mod_errs"].get(m, {}).get("RMSE_Z", np.nan)
                 row[f"{key}_p95"] = out["mod_errs"].get(m, {}).get("P95", np.nan)
             rows.append(row)
             cnt += 1
