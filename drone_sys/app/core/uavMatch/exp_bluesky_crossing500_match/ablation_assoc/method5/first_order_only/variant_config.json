@@ -1,0 +1,129 @@
+{
+  "group": "method5",
+  "variant": "first_order_only",
+  "desc": "1st-order only: no second-order graph structure term",
+  "match_patch": {
+    "AFFINITY_EDGE_WEIGHT": 0.0
+  },
+  "pipeline_run_cfg": {
+    "WORK_ROOT": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing500_match\\ablation_assoc\\method5\\first_order_only",
+    "RAW_DATASET_DIR": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing500_match\\raw_dataset",
+    "PROCESSED_DATASET_DIR": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing500_match\\processed_dataset",
+    "OUTPUT_DIR": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing500_match\\ablation_assoc\\method5\\first_order_only\\output",
+    "RUN_GENERATE": false,
+    "RUN_TRANSFER_CONFIDENCE": false,
+    "RUN_FUSION": false,
+    "RUN_MATCH": true,
+    "RUN_PLOT_TRAJ_COMPARE": false,
+    "RUN_EVAL": true,
+    "SKIP_IF_EXISTS": true,
+    "SEED": 20260327,
+    "UAV_COUNT": 500,
+    "DURATION_S": 120.0,
+    "TRUTH_DT_S": 1.0,
+    "BATCH_SIZE": 200,
+    "GENERATOR_WORKERS": 12,
+    "GENERATOR_USE_MULTIPROCESSING": true,
+    "TRANSFER_WORKERS": 12,
+    "RADAR_RATE_HZ": 3.0,
+    "RADAR_ERROR_SCALE": 0.85,
+    "RATIO_UNREPORTED": 0.12,
+    "RATIO_DRIFT": 0.1,
+    "RATIO_DEVIATION": 0.1,
+    "RATIO_CONSISTENT_MIN": 0.5,
+    "FALSE_REPORT_COUNT": 40,
+    "TRAJ_PLOT_LIMIT": 120,
+    "TRAJ_TOPN_OVERLAY_N": 20,
+    "TRAJ_TOPN_OVERLAY_FILENAME": "traj_compare_top20_overlay.png",
+    "MATCH_CONFIG_OVERRIDES": {
+      "PRINT_DETAIL": false,
+      "WINDOW_DURATION_S": 3.0,
+      "MATCH_ACTIVE_GAP_S": 2.5,
+      "GRAPH_KNN_FUSION": 2,
+      "GRAPH_KNN_REPORT": 2,
+      "TOPK_PER_FUSION": 12,
+      "MAX_CANDIDATE_PAIRS_FOR_AFFINITY": 6000,
+      "CANDIDATE_RADIUS_M": 2500.0,
+      "SIGMA_NODE_POS_M": 320.0,
+      "SIGMA_NODE_VEL_MPS": 70.0,
+      "SIGMA_NODE_PATH_M": 1400.0,
+      "SIGMA_EDGE_DP_M": 900.0,
+      "SIGMA_EDGE_DV_MPS": 60.0,
+      "AFFINITY_EDGE_WEIGHT": 0.0,
+      "MIN_MATCH_NODE_SCORE": 0.001,
+      "MIN_MATCH_PAIR_SCORE": 0.003,
+      "PAIR_SCORE_THRESHOLD": 0.18,
+      "DRIFT_OFFSET_M": 180.0,
+      "DEVIATION_OFFSET_M": 140.0,
+      "DEVIATION_HEADING_DEG": 30.0,
+      "DEVIATION_GROWTH_FRAMES": 2,
+      "VOTE_WINDOW_FRAMES": 5,
+      "VOTE_MIN_OBS": 3,
+      "VOTE_MIN_TRUE_COUNT": 3,
+      "VOTE_TRIGGER_RATIO": 0.6
+    },
+    "GENERATOR_CFG_DEEP_OVERRIDE": {
+      "simulation": {
+        "duration_s": 120.0,
+        "truth_dt_s": 1.0,
+        "spawn_span_deg": 0.18,
+        "alt_range_m": [
+          90.0,
+          135.0
+        ],
+        "speed_range_mps": [
+          26.0,
+          62.0
+        ],
+        "segment_count": [
+          20,
+          36
+        ],
+        "segment_step_deg": [
+          0.0014,
+          0.0048
+        ],
+        "segment_alt_step_m": 12.0,
+        "uav_count": 500
+      },
+      "scenario_mix": {
+        "A": 0.4,
+        "B": 0.3,
+        "C": 0.16,
+        "D": 0.09,
+        "E": 0.05
+      },
+      "modalities": {
+        "gps": {
+          "rate_hz": 5.0,
+          "time_jitter_s": 0.01,
+          "arrival_jitter_s": 0.012,
+          "reorder_window": 4
+        },
+        "radar": {
+          "rate_hz": 3.0,
+          "time_jitter_s": 0.02,
+          "arrival_jitter_s": 0.025,
+          "reorder_window": 6
+        }
+      },
+      "modality_error_scale": {
+        "gps": 0.95,
+        "radar": 0.85,
+        "fiveg": 1.2,
+        "tdoa": 1.45,
+        "acoustic": 2.3
+      },
+      "missing_control": {
+        "force_available_modalities": [
+          "gps",
+          "radar",
+          "fiveg",
+          "tdoa",
+          "acoustic"
+        ]
+      }
+    },
+    "VERBOSE": true
+  }
+}

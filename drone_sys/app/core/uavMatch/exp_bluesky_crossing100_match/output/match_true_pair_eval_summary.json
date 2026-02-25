@@ -1,0 +1,37 @@
+{
+  "matched_pairs": 10405,
+  "true_matches": 10356,
+  "pair_precision": 0.9952907256126862,
+  "by_case": [
+    {
+      "scenario_case": "consistent",
+      "matched_pairs": 8216,
+      "true_matches": 8169,
+      "pair_precision": 0.9942794547224927
+    },
+    {
+      "scenario_case": "deviation",
+      "matched_pairs": 978,
+      "true_matches": 978,
+      "pair_precision": 1.0
+    },
+    {
+      "scenario_case": "drift",
+      "matched_pairs": 1209,
+      "true_matches": 1209,
+      "pair_precision": 1.0
+    },
+    {
+      "scenario_case": "unreported",
+      "matched_pairs": 2,
+      "true_matches": 0,
+      "pair_precision": 0.0
+    }
+  ],
+  "per_frame_pair_precision": {
+    "mean": 0.995394958418612,
+    "median": 1.0,
+    "p10": 0.9772727272727273,
+    "p90": 1.0
+  }
+}

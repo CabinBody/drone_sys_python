@@ -1,0 +1,78 @@
+{
+  "metric_definition": {
+    "precision": "TP / (TP + FP), exact pair match on (time, fusion_id, report_id)",
+    "recall": "TP / GT_pairs",
+    "f1": "harmonic mean of precision and recall",
+    "mota": "1 - (FN + FP + IDSW) / GT_pairs",
+    "idsw_definition": "For the same passive GT object, predicted report_id changes between two predicted frames."
+  },
+  "counts": {
+    "gt_pairs": 53240,
+    "pred_pairs": 53664,
+    "tp": 50821,
+    "fp": 2843,
+    "fn": 2419,
+    "idsw": 648,
+    "frames_in_match_results": 121,
+    "frames_with_gt": 121
+  },
+  "metrics": {
+    "Precision": 0.9470222122838402,
+    "Recall": 0.9545642374154771,
+    "F1Score": 0.9507782683529148,
+    "MOTA": 0.8889932381667919
+  },
+  "frame_metrics_summary": {
+    "avg_pred_pairs_per_frame": 443.504132231405,
+    "avg_gt_pairs_per_frame": 440.0,
+    "avg_tp_per_frame": 420.0082644628099,
+    "avg_precision_per_frame": 0.9466226199791609,
+    "avg_recall_per_frame": 0.9545642374154774,
+    "avg_mota_per_frame": 0.8889932381667919,
+    "median_pred_pairs_per_frame": 446.0,
+    "median_gt_pairs_per_frame": 440.0,
+    "median_tp_per_frame": 429.0
+  },
+  "by_scenario_case": [
+    {
+      "scenario_case": "consistent",
+      "gt_count": 41140,
+      "pred_count": 40916,
+      "tp_count": 39785,
+      "fp_count": 1131,
+      "fn_count": 1355,
+      "precision": 0.9723580017597028,
+      "recall": 0.9670636849781235,
+      "f1": 0.96970361704202
+    },
+    {
+      "scenario_case": "deviation",
+      "gt_count": 6050,
+      "pred_count": 5514,
+      "tp_count": 5095,
+      "fp_count": 419,
+      "fn_count": 955,
+      "precision": 0.9240116068190062,
+      "recall": 0.8421487603305785,
+      "f1": 0.8811829816672432
+    },
+    {
+      "scenario_case": "drift",
+      "gt_count": 6050,
+      "pred_count": 6021,
+      "tp_count": 5941,
+      "fp_count": 80,
+      "fn_count": 109,
+      "precision": 0.9867131705696728,
+      "recall": 0.9819834710743801,
+      "f1": 0.9843426393836466
+    }
+  ],
+  "files": {
+    "output_dir": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing500_match\\ablation_assoc\\method5\\no_t\\output",
+    "match_results_json": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing500_match\\ablation_assoc\\method5\\no_t\\output\\match_results.json",
+    "passive_tracks_csv": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing500_match\\ablation_assoc\\method5\\no_t\\output\\passive_tracks.csv",
+    "passive_track_truth_map_csv": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing500_match\\ablation_assoc\\method5\\no_t\\output\\passive_track_truth_map.csv",
+    "report_tracks_csv": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing500_match\\ablation_assoc\\method5\\no_t\\output\\report_tracks.csv"
+  }
+}

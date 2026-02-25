@@ -552,6 +552,72 @@
           ]
         }
       }
+    },
+    {
+      "name": "scenario_mixed_crossing_noncrossing_1000x120",
+      "override": {
+        "seed": 20260327,
+        "simulation": {
+          "uav_count": 1000,
+          "duration_s": 120.0,
+          "truth_dt_s": 1.0,
+          "spawn_span_deg": 0.18,
+          "alt_range_m": [
+            90.0,
+            135.0
+          ],
+          "speed_range_mps": [
+            26.0,
+            62.0
+          ],
+          "segment_count": [
+            20,
+            36
+          ],
+          "segment_step_deg": [
+            0.0014,
+            0.0048
+          ],
+          "segment_alt_step_m": 12.0
+        },
+        "scenario_mix": {
+          "A": 0.40,
+          "B": 0.30,
+          "C": 0.16,
+          "D": 0.09,
+          "E": 0.05
+        },
+        "modalities": {
+          "radar": {
+            "rate_hz": 3.0,
+            "time_jitter_s": 0.020,
+            "arrival_jitter_s": 0.025,
+            "reorder_window": 6
+          },
+          "gps": {
+            "rate_hz": 5.0,
+            "time_jitter_s": 0.010,
+            "arrival_jitter_s": 0.012,
+            "reorder_window": 4
+          }
+        },
+        "modality_error_scale": {
+          "gps": 0.95,
+          "radar": 0.85,
+          "fiveg": 1.20,
+          "tdoa": 1.45,
+          "acoustic": 2.30
+        },
+        "missing_control": {
+          "force_available_modalities": [
+            "gps",
+            "radar",
+            "fiveg",
+            "tdoa",
+            "acoustic"
+          ]
+        }
+      }
     }
   ]
 }

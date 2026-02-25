@@ -1,0 +1,78 @@
+{
+  "metric_definition": {
+    "precision": "TP / (TP + FP), exact pair match on (time, fusion_id, report_id)",
+    "recall": "TP / GT_pairs",
+    "f1": "harmonic mean of precision and recall",
+    "mota": "1 - (FN + FP + IDSW) / GT_pairs",
+    "idsw_definition": "For the same passive GT object, predicted report_id changes between two predicted frames."
+  },
+  "counts": {
+    "gt_pairs": 10648,
+    "pred_pairs": 10405,
+    "tp": 10356,
+    "fp": 49,
+    "fn": 292,
+    "idsw": 28,
+    "frames_in_match_results": 121,
+    "frames_with_gt": 121
+  },
+  "metrics": {
+    "Precision": 0.9952907256126862,
+    "Recall": 0.9725770097670924,
+    "F1Score": 0.9838027834512897,
+    "MOTA": 0.9653456048084147
+  },
+  "frame_metrics_summary": {
+    "avg_pred_pairs_per_frame": 85.99173553719008,
+    "avg_gt_pairs_per_frame": 88.0,
+    "avg_tp_per_frame": 85.58677685950413,
+    "avg_precision_per_frame": 0.995394958418612,
+    "avg_recall_per_frame": 0.9725770097670926,
+    "avg_mota_per_frame": 0.9653456048084147,
+    "median_pred_pairs_per_frame": 88.0,
+    "median_gt_pairs_per_frame": 88.0,
+    "median_tp_per_frame": 87.0
+  },
+  "by_scenario_case": [
+    {
+      "scenario_case": "consistent",
+      "gt_count": 8228,
+      "pred_count": 8216,
+      "tp_count": 8169,
+      "fp_count": 47,
+      "fn_count": 59,
+      "precision": 0.9942794547224927,
+      "recall": 0.9928293631502187,
+      "f1": 0.9935538798345901
+    },
+    {
+      "scenario_case": "deviation",
+      "gt_count": 1210,
+      "pred_count": 978,
+      "tp_count": 978,
+      "fp_count": 0,
+      "fn_count": 232,
+      "precision": 1.0,
+      "recall": 0.8082644628099174,
+      "f1": 0.8939670932358318
+    },
+    {
+      "scenario_case": "drift",
+      "gt_count": 1210,
+      "pred_count": 1209,
+      "tp_count": 1209,
+      "fp_count": 0,
+      "fn_count": 1,
+      "precision": 1.0,
+      "recall": 0.9991735537190083,
+      "f1": 0.9995866060355519
+    }
+  ],
+  "files": {
+    "output_dir": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing100_match\\output",
+    "match_results_json": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing100_match\\output\\match_results.json",
+    "passive_tracks_csv": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing100_match\\output\\passive_tracks.csv",
+    "passive_track_truth_map_csv": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing100_match\\output\\passive_track_truth_map.csv",
+    "report_tracks_csv": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing100_match\\output\\report_tracks.csv"
+  }
+}

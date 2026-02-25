@@ -1,0 +1,167 @@
+{
+  "dataset_dir": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_100x120_match\\raw_dataset",
+  "output_dir": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_100x120_match\\processed_dataset",
+  "confidence_config": {
+    "mode": "linear",
+    "alpha": 0.65,
+    "sigmoid_k": 8.0,
+    "sigmoid_b": 0.5
+  },
+  "layout": "batched",
+  "batch_count": 1,
+  "batches": [
+    {
+      "batch": "batch01",
+      "path": "batch01",
+      "source_dataset": "raw_dataset",
+      "source_unit": "batch01",
+      "summary": {
+        "input_dir": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_100x120_match\\raw_dataset\\batch01",
+        "output_dir": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_100x120_match\\processed_dataset\\batch01",
+        "label": "batch01",
+        "truth": {
+          "copied": true,
+          "source": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_100x120_match\\raw_dataset\\batch01\\truth.csv",
+          "output": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_100x120_match\\processed_dataset\\batch01\\truth.csv"
+        },
+        "modalities": {
+          "gps": {
+            "rows": 60100,
+            "quality_columns": [
+              "Nsat",
+              "DOP",
+              "RTK"
+            ],
+            "quality_columns_preserved": true,
+            "dropped_quality_columns": [],
+            "added_columns": [
+              "phi_Nsat",
+              "phi_DOP",
+              "phi_RTK",
+              "rt_m",
+              "st_m",
+              "confidence"
+            ],
+            "confidence_mean": 0.6432403085766377,
+            "confidence_std": 0.22203447393427406,
+            "scenario_confidence_mean": {
+              "A": 0.8046439094054152,
+              "B": 0.6233592397982424,
+              "C": 0.28485134509404797,
+              "D": 0.5866190519511648,
+              "E": 0.18546420258060906
+            }
+          },
+          "radar": {
+            "rows": 36100,
+            "quality_columns": [
+              "E",
+              "Ptrk"
+            ],
+            "quality_columns_preserved": true,
+            "dropped_quality_columns": [],
+            "added_columns": [
+              "phi_E",
+              "phi_Ptrk",
+              "rt_m",
+              "st_m",
+              "confidence"
+            ],
+            "confidence_mean": 0.5104637966279055,
+            "confidence_std": 0.24787060840322095,
+            "scenario_confidence_mean": {
+              "A": 0.7055692543734668,
+              "B": 0.4799695629082945,
+              "C": 0.09303636695232403,
+              "D": 0.39452655076968823,
+              "E": 0.05963306790801577
+            }
+          },
+          "fiveg": {
+            "rows": 120100,
+            "quality_columns": [
+              "SNR",
+              "RSSI",
+              "d",
+              "ploss"
+            ],
+            "quality_columns_preserved": true,
+            "dropped_quality_columns": [],
+            "added_columns": [
+              "phi_SNR",
+              "phi_RSSI",
+              "phi_d",
+              "phi_ploss",
+              "rt_m",
+              "st_m",
+              "confidence"
+            ],
+            "confidence_mean": 0.5440152171618802,
+            "confidence_std": 0.20124895912376223,
+            "scenario_confidence_mean": {
+              "A": 0.7036823489582119,
+              "B": 0.5370644286179169,
+              "C": 0.2021676587093071,
+              "D": 0.41557767118522754,
+              "E": 0.11013764521580217
+            }
+          },
+          "tdoa": {
+            "rows": 12100,
+            "quality_columns": [
+              "e",
+              "eps_sync"
+            ],
+            "quality_columns_preserved": true,
+            "dropped_quality_columns": [],
+            "added_columns": [
+              "phi_e",
+              "phi_eps_sync",
+              "rt_m",
+              "st_m",
+              "confidence"
+            ],
+            "confidence_mean": 0.6646244218252835,
+            "confidence_std": 0.21903051807104978,
+            "scenario_confidence_mean": {
+              "A": 0.820866098371143,
+              "B": 0.682055653892546,
+              "C": 0.3228684597904161,
+              "D": 0.5782438985760843,
+              "E": 0.14987094959768582
+            }
+          },
+          "acoustic": {
+            "rows": 12100,
+            "quality_columns": [
+              "SNRa",
+              "n"
+            ],
+            "quality_columns_preserved": true,
+            "dropped_quality_columns": [],
+            "added_columns": [
+              "phi_SNRa",
+              "phi_n",
+              "rt_m",
+              "st_m",
+              "confidence"
+            ],
+            "confidence_mean": 0.35528186279512075,
+            "confidence_std": 0.2965434521510626,
+            "scenario_confidence_mean": {
+              "A": 0.5609386163188176,
+              "B": 0.3138768668971014,
+              "C": 0.05001110899972001,
+              "D": 0.18799989210197598,
+              "E": 0.013115096802710925
+            }
+          }
+        }
+      }
+    }
+  ],
+  "raw_dataset_summary": {
+    "copied": true,
+    "path": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_100x120_match\\processed_dataset\\dataset_summary.raw.json"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "plot_dir": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing200_match\\output\\traj_compare_per_uav",
+  "plotted_uav_count": 120,
+  "requested_uav_count": 120,
+  "stats_csv": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing200_match\\output\\traj_compare_stats_by_uav.csv",
+  "stats_by_case_csv": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing200_match\\output\\traj_compare_stats_by_case.csv"
+}

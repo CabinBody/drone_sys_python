@@ -1,0 +1,143 @@
+{
+  "input_dir": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing500_match\\raw_dataset\\batch02",
+  "output_dir": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing500_match\\processed_dataset\\batch02",
+  "label": "batch02",
+  "truth": {
+    "copied": true,
+    "source": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing500_match\\raw_dataset\\batch02\\truth.csv",
+    "output": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing500_match\\processed_dataset\\batch02\\truth.csv"
+  },
+  "modalities": {
+    "gps": {
+      "rows": 120200,
+      "quality_columns": [
+        "Nsat",
+        "DOP",
+        "RTK"
+      ],
+      "quality_columns_preserved": true,
+      "dropped_quality_columns": [],
+      "added_columns": [
+        "phi_Nsat",
+        "phi_DOP",
+        "phi_RTK",
+        "rt_m",
+        "st_m",
+        "confidence"
+      ],
+      "confidence_mean": 0.6725882604018851,
+      "confidence_std": 0.21582877655210822,
+      "scenario_confidence_mean": {
+        "A": 0.8133244746396443,
+        "B": 0.6313061581856455,
+        "C": 0.2971710988012795,
+        "D": 0.5921097071350612,
+        "E": 0.18439316755659496
+      }
+    },
+    "radar": {
+      "rows": 72200,
+      "quality_columns": [
+        "E",
+        "Ptrk"
+      ],
+      "quality_columns_preserved": true,
+      "dropped_quality_columns": [],
+      "added_columns": [
+        "phi_E",
+        "phi_Ptrk",
+        "rt_m",
+        "st_m",
+        "confidence"
+      ],
+      "confidence_mean": 0.5555859568280377,
+      "confidence_std": 0.2435261400352442,
+      "scenario_confidence_mean": {
+        "A": 0.7381034284042849,
+        "B": 0.5141287520136479,
+        "C": 0.11792501769582918,
+        "D": 0.4304729715031431,
+        "E": 0.07423548155170742
+      }
+    },
+    "fiveg": {
+      "rows": 240200,
+      "quality_columns": [
+        "SNR",
+        "RSSI",
+        "d",
+        "ploss"
+      ],
+      "quality_columns_preserved": true,
+      "dropped_quality_columns": [],
+      "added_columns": [
+        "phi_SNR",
+        "phi_RSSI",
+        "phi_d",
+        "phi_ploss",
+        "rt_m",
+        "st_m",
+        "confidence"
+      ],
+      "confidence_mean": 0.5797998475677302,
+      "confidence_std": 0.19914892796790162,
+      "scenario_confidence_mean": {
+        "A": 0.7291704594492631,
+        "B": 0.5634836950123043,
+        "C": 0.22686600523187683,
+        "D": 0.4377812921647672,
+        "E": 0.1201440565448171
+      }
+    },
+    "tdoa": {
+      "rows": 24200,
+      "quality_columns": [
+        "e",
+        "eps_sync"
+      ],
+      "quality_columns_preserved": true,
+      "dropped_quality_columns": [],
+      "added_columns": [
+        "phi_e",
+        "phi_eps_sync",
+        "rt_m",
+        "st_m",
+        "confidence"
+      ],
+      "confidence_mean": 0.7057234769018156,
+      "confidence_std": 0.21348169365308692,
+      "scenario_confidence_mean": {
+        "A": 0.8483939745253225,
+        "B": 0.7006685277204993,
+        "C": 0.34734497217580323,
+        "D": 0.6017378762819978,
+        "E": 0.16975247607188676
+      }
+    },
+    "acoustic": {
+      "rows": 24200,
+      "quality_columns": [
+        "SNRa",
+        "n"
+      ],
+      "quality_columns_preserved": true,
+      "dropped_quality_columns": [],
+      "added_columns": [
+        "phi_SNRa",
+        "phi_n",
+        "rt_m",
+        "st_m",
+        "confidence"
+      ],
+      "confidence_mean": 0.5124655949927718,
+      "confidence_std": 0.2165250275888193,
+      "scenario_confidence_mean": {
+        "A": 0.6765671059799331,
+        "B": 0.46542766188096213,
+        "C": 0.17080763885663086,
+        "D": 0.3599569399810616,
+        "E": 0.10516237567257827
+      }
+    }
+  }
+}

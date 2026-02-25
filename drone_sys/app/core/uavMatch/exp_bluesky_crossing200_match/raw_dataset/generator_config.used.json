@@ -1,0 +1,319 @@
+{
+  "seed": 20260327,
+  "output_dir": "D:\\MyCode\\drone_sys_python\\drone_sys\\app\\core\\uavMatch\\exp_bluesky_crossing200_match\\raw_dataset",
+  "worker_num": 12,
+  "use_multiprocessing": true,
+  "batching": {
+    "enabled": true,
+    "batch_size": 200,
+    "folder_prefix": "batch"
+  },
+  "simulation": {
+    "uav_count": 200,
+    "duration_s": 120.0,
+    "truth_dt_s": 1.0,
+    "start_epoch": 1700000000,
+    "base_lat": 45.0,
+    "base_lon": 5.0,
+    "spawn_span_deg": 0.18,
+    "alt_range_m": [
+      90.0,
+      135.0
+    ],
+    "speed_range_mps": [
+      26.0,
+      62.0
+    ],
+    "segment_count": [
+      20,
+      36
+    ],
+    "segment_step_deg": [
+      0.0014,
+      0.0048
+    ],
+    "segment_alt_step_m": 12.0
+  },
+  "scenario_mix": {
+    "A": 0.4,
+    "B": 0.3,
+    "C": 0.16,
+    "D": 0.09,
+    "E": 0.05
+  },
+  "scenario_duration_s": {
+    "A": [
+      8.0,
+      24.0
+    ],
+    "B": [
+      6.0,
+      18.0
+    ],
+    "C": [
+      4.0,
+      14.0
+    ],
+    "D": [
+      3.0,
+      8.0
+    ],
+    "E": [
+      5.0,
+      20.0
+    ]
+  },
+  "modalities": {
+    "gps": {
+      "rate_hz": 5.0,
+      "time_jitter_s": 0.01,
+      "arrival_jitter_s": 0.012,
+      "reorder_window": 4
+    },
+    "radar": {
+      "rate_hz": 3.0,
+      "time_jitter_s": 0.02,
+      "arrival_jitter_s": 0.025,
+      "reorder_window": 6
+    },
+    "fiveg": {
+      "rate_hz": 10.0,
+      "time_jitter_s": 0.01,
+      "arrival_jitter_s": 0.06,
+      "reorder_window": 12
+    },
+    "tdoa": {
+      "rate_hz": 1.0,
+      "time_jitter_s": 0.04,
+      "arrival_jitter_s": 0.04,
+      "reorder_window": 6
+    },
+    "acoustic": {
+      "rate_hz": 1.0,
+      "time_jitter_s": 0.04,
+      "arrival_jitter_s": 0.05,
+      "reorder_window": 6
+    }
+  },
+  "quality_bounds": {
+    "gps": {
+      "Nsat": [
+        4,
+        20
+      ],
+      "DOP": [
+        0.5,
+        8.0
+      ],
+      "RTK": [
+        "FIX",
+        "FLOAT",
+        "NONE"
+      ]
+    },
+    "radar": {
+      "E": [
+        0.0,
+        1.0
+      ],
+      "Ptrk": [
+        0.0,
+        1.0
+      ]
+    },
+    "fiveg": {
+      "SNR": [
+        0.0,
+        30.0
+      ],
+      "RSSI": [
+        -110.0,
+        -50.0
+      ],
+      "d": [
+        5.0,
+        300.0
+      ],
+      "ploss": [
+        0.0,
+        0.5
+      ]
+    },
+    "tdoa": {
+      "eps_sync": [
+        0.0,
+        200.0
+      ],
+      "e": [
+        0.0,
+        50.0
+      ]
+    },
+    "acoustic": {
+      "SNRa": [
+        0.0,
+        30.0
+      ],
+      "n": [
+        0.0,
+        1.0
+      ]
+    }
+  },
+  "environment": {
+    "anchors": {
+      "gps": [
+        45.0,
+        5.0
+      ],
+      "radar": [
+        45.02,
+        5.01
+      ],
+      "fiveg": [
+        44.99,
+        5.03
+      ],
+      "tdoa": [
+        45.04,
+        4.98
+      ],
+      "acoustic": [
+        44.97,
+        5.0
+      ]
+    },
+    "max_range_m": {
+      "gps": 60000.0,
+      "radar": 45000.0,
+      "fiveg": 22000.0,
+      "tdoa": 35000.0,
+      "acoustic": 18000.0
+    },
+    "obstacle_zones": [
+      {
+        "lat": 45.06,
+        "lon": 5.06,
+        "radius_m": 12000.0,
+        "strength": 0.6
+      },
+      {
+        "lat": 44.93,
+        "lon": 5.02,
+        "radius_m": 9000.0,
+        "strength": 0.45
+      },
+      {
+        "lat": 45.01,
+        "lon": 4.94,
+        "radius_m": 10000.0,
+        "strength": 0.5
+      }
+    ],
+    "interference_events": [
+      {
+        "start_s": 20.0,
+        "end_s": 35.0,
+        "modalities": [
+          "fiveg",
+          "tdoa"
+        ],
+        "level": 0.6
+      },
+      {
+        "start_s": 55.0,
+        "end_s": 68.0,
+        "modalities": [
+          "gps",
+          "radar"
+        ],
+        "level": 0.4
+      },
+      {
+        "start_s": 85.0,
+        "end_s": 105.0,
+        "modalities": [
+          "acoustic",
+          "fiveg"
+        ],
+        "level": 0.7
+      }
+    ]
+  },
+  "drift": {
+    "enabled": true,
+    "start_prob": {
+      "C": 0.06,
+      "E": 0.14
+    },
+    "duration_s": [
+      5.0,
+      20.0
+    ],
+    "bias_mps": 0.35,
+    "rw_sigma_m": 0.9,
+    "decay": 0.93
+  },
+  "missing_control": {
+    "global_scale": 1.0,
+    "global_bias": 0.0,
+    "scenario_scale": {
+      "A": 1.0,
+      "B": 1.0,
+      "C": 1.0,
+      "D": 1.0,
+      "E": 1.0
+    },
+    "modality_scale": {
+      "gps": 1.0,
+      "radar": 1.0,
+      "fiveg": 1.0,
+      "tdoa": 1.0,
+      "acoustic": 1.0
+    },
+    "modality_bias": {
+      "gps": 0.0,
+      "radar": 0.0,
+      "fiveg": 0.0,
+      "tdoa": 0.0,
+      "acoustic": 0.0
+    },
+    "force_missing_modalities": [],
+    "force_available_modalities": [
+      "gps",
+      "radar",
+      "fiveg",
+      "tdoa",
+      "acoustic"
+    ],
+    "random_blackout": {
+      "enabled": false,
+      "event_count": [
+        0,
+        0
+      ],
+      "modality_count": [
+        2,
+        5
+      ],
+      "duration_s": [
+        5.0,
+        10.0
+      ],
+      "modalities": [
+        "gps",
+        "radar",
+        "fiveg",
+        "tdoa",
+        "acoustic"
+      ]
+    }
+  },
+  "modality_error_scale": {
+    "radar": 0.85,
+    "gps": 0.95,
+    "fiveg": 1.2,
+    "tdoa": 1.45,
+    "acoustic": 2.3
+  }
+}
